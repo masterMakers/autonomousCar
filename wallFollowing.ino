@@ -42,13 +42,16 @@ double lastM2Error;
 
 //high level control
 int gait = 1; //1 is go straight fast, 2 means turn 90 degrees left
-double initialYaw;
+double initialYaw = 0;
+double desiredYaw = 0;
+double currentYaw;
 double yawChange = 0.0;
 int counter = 0;
+int wallDetected = 0;
 
 //wall following
 double nominalForwardSpeed = 0.5;
-double desWallDistance = 40.0;
+double desWallDistance = 30.0;
 double rightWallDistance = 0.0;
 double previousWallError = 0.0;
 double wallError = 0.0;
@@ -70,7 +73,7 @@ void setup()
   //IMU Sensor Initialization
   IMU.initSensor();          //The I2C Address can be changed here inside this function in the library
   IMU.setOperationMode(OPERATION_MODE_NDOF);   //Can be configured to other operation modes as desired
-  IMU.setUpdateMode(MANUAL);	//The default is AUTO. Changing to MANUAL requires calling the relevant update functions prior to calling the read functions
+  IMU.setUpdateMode(MANUAL);  //The default is AUTO. Changing to MANUAL requires calling the relevant update functions prior to calling the read functions
   
   //initialize distance sensor pins
   for(int i=0; i<numDistSensors; i++)
@@ -78,6 +81,7 @@ void setup()
     pinMode(trigPins[i], OUTPUT);
     pinMode(echoPins[i], INPUT);
   }
+  initialYaw = IMU.readEulerHeading();
 }
 
 void loop() 
@@ -129,41 +133,92 @@ void loop()
     desiredM1Vel = nominalForwardSpeed;
     desiredM2Vel = nominalForwardSpeed;
     
-    if (wallError>0)
-    {
-      desiredM2Vel = nominalForwardSpeed - abs(wallPIDTerm);
-    }
-    else if (wallError<0)
-    {
-      desiredM1Vel = nominalForwardSpeed - abs(wallPIDTerm);
-    }
-       
-    
-    
-//    //behavioral control
+    //behavioral control
 //    if ((distances[4]<20.0) && (counter == 0))
 //    {
 //      gait = 2;
 //      initialYaw = IMU.readEulerHeading();
 //      counter++;
 //    }
-//    
-//    switch(gait)
-//    {
-//      case 1: //go straight
-//        desiredM1Vel = 1;
-//        desiredM2Vel = 1;
-//        break;
-//      case 2: //turn 90 degrees left
-//        desiredM1Vel = 0.5;
-//        desiredM2Vel = -0.5;
-//        if (abs(IMU.readEulerHeading()-initialYaw) > 89.5)
-//        {
-//          gait = 1;
-//          counter = 0;
-//        }
-//        break;
-//    }
+    if (IMU.readEulerHeading() - desiredYaw >= 180)
+    {
+      currentYaw = IMU.readEulerHeading() - desiredYaw - 360;
+    }
+    else
+    {
+      currentYaw = IMU.readEulerHeading() - desiredYaw;
+    }
+    if(rightWallDistance < 120.0)
+    {
+      wallDetected = 1;
+    }
+    switch(gait)
+    {
+      case 1: //go straight
+        if (abs(currentYaw - initialYaw) <= 10)
+        {
+          if (wallError>0)
+          {
+            desiredM2Vel = nominalForwardSpeed - abs(wallPIDTerm);
+          }
+          else if (wallError<0)
+          {
+            desiredM1Vel = nominalForwardSpeed - abs(wallPIDTerm);
+          }
+        }
+        else if(currentYaw > initialYaw)
+        {
+          desiredM1Vel = 0.25;
+          desiredM2Vel = 0.35;
+        }
+        else if(currentYaw < initialYaw)
+        {
+          desiredM1Vel = 0.35;
+          desiredM2Vel = 0.25;
+        }
+        if (rightWallDistance > 120.0 && wallDetected == 1)
+        {
+          gait = 2;
+//          initialYaw = IMU.readEulerHeading();
+          counter++;
+        }
+        break;
+      case 2: //turn 90 degrees left
+        desiredM1Vel = 0.5;
+        desiredM2Vel = -0.5;
+        wallDetected = 0;
+        if (abs(currentYaw - initialYaw) > 90)
+        {
+          gait = 3;
+          counter = 0;
+          desiredYaw = 90;
+          motorDriver.setM1Brake(400);
+          motorDriver.setM2Brake(400);
+          delay(1000);
+        }
+        break;
+        case 3:
+        if(currentYaw > initialYaw)
+        {
+          desiredM1Vel = 0.4;
+          desiredM2Vel = 0.5;
+        }
+        else if(currentYaw < initialYaw)
+        {
+          desiredM1Vel = 0.5;
+          desiredM2Vel = 0.4;
+        }
+        
+//        desiredM1Vel = 0.25;
+//        desiredM2Vel = 0.35;
+
+        if (wallDetected ==1)
+        {
+//          delayMicroseconds(500);
+          gait = 1;
+        }
+        break;
+    }
     
     //low level control
     double M1Error = desiredM1Vel - motor1Vel;
@@ -176,10 +231,10 @@ void loop()
     motorDriver.setM1Speed(motor2Command); 
     stopIfFault();
     
-    //print everything to serial
-//    Serial.print(" Yaw: ");
-//    Serial.print(IMU.readEulerHeading()); //Heading data
-//    Serial.print(" deg ");
+//    //print everything to serial
+    Serial.print(" Yaw: ");
+    Serial.print(currentYaw); //Heading data
+    Serial.print(" deg ");
 //
 //    Serial.print(" Roll: ");
 //    Serial.print(IMU.readEulerRoll()); //Roll data
@@ -235,11 +290,14 @@ void loop()
     Serial.print(" M2 Des Vel: ");
     Serial.print(desiredM2Vel);
     
-    Serial.print(" PID: ");
-    Serial.print(wallPIDTerm);
-    
-    Serial.print(" Wall Error: ");
-    Serial.print(wallError);
+//    Serial.print(" PID: ");
+//    Serial.print(wallPIDTerm);
+//    
+//    Serial.print(" Wall Error: ");
+//    Serial.print(wallError);
+
+    Serial.print(" Wall Detected: ");
+    Serial.print(wallDetected);
     
 //    Serial.print(" D5: ");
 //    Serial.print(distances[4]);
@@ -248,8 +306,11 @@ void loop()
 //    Serial.print(" Yaw Change:");
 //    Serial.print(abs(IMU.readEulerHeading()-initialYaw));
 //    
-//    Serial.print(" Gait:");
-//    Serial.print(gait);
+    Serial.print(" Gait:");
+    Serial.print(gait);
+    
+    Serial.print(" Right sensor reading:");
+    Serial.print(rightWallDistance);
     
     Serial.println();
     
