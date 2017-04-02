@@ -11,7 +11,7 @@ double Input, Output;
 double Setpoint = 0;
 PID mPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
 
-const double K = 1000.0 / (240 / (2 * 0.1524 * 3.14159)); // (ms/s) / (ticksPerMeter)
+const double K = 1000.0 / (240 / (0.1524 * 3.14159)); // (ms/s) / (ticksPerMeter)
                                         // ticksPerMeter = ticksPerRev / MetersPerRev
 
 const unsigned long serialPing = 500; // ping interval in ms
@@ -96,8 +96,6 @@ void loop()
             Ki = val;
             mPID.SetTunings(Kp, Ki, Kd);
             break;
-        default :
-            // error
         }
     }
 }

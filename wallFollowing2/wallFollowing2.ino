@@ -1,15 +1,12 @@
 #include <Encoder.h>
 #include <Wire.h>
-#include "DualVNH5019MotorShield.h"
-#include "NAxisMotion.h"
 #include <PID_v1.h>
+#include <NAxisMotion.h>
+#include <DualVNH5019MotorShield.h>
 
-//motor object
 DualVNH5019MotorShield motorDriver(11, 5, 13, A0, 7, 8, 12, A1);
-//encoder object
 Encoder motorEncL(18, 19);
 Encoder motorEncR(2, 3);
-//IMU object
 NAxisMotion IMU;
 
 //distance sensors
@@ -21,9 +18,9 @@ const int LEFT_SIDE = 1;
 const int RIGHT_SIDE = 2;
 const int RIGHT_CORNER = 3;
 const int FRONT = 4;
-// sides, front then corners
 double distances[numDistSensors];
 const double M = 1 / 29.0 / 2.0; // distance calibration
+int currDistSensor = 0;
 
 //motor control
 long motorTicksPrevL;
@@ -36,14 +33,15 @@ double desiredVelR = 1.0;
 PID pidL(&motorVelL, &motorCmdL, &desiredVelL, 5.0, 0.0, 30.0, DIRECT);
 PID pidR(&motorVelR, &motorCmdR, &desiredVelR, 5.0, 0.0, 30.0, DIRECT); 
         // args: input, output, setpoint, Kp, Ki, Kd, mode
-const double K = 1000.0 / (240 / (2 * 0.1524 * 3.14159)); // (ms/s) / (ticksPerMeter)
+const double K = 1000.0 / (240 / (0.1524 * 3.14159)); // (ms/s) / (ticksPerMeter)
                                         // ticksPerMeter = ticksPerRev / MetersPerRev
 
 //wall following
 double nominalForwardSpeed = 0.5;
-double rightWallDistance, wallSteeringAngle;
+double rightWallDistance, wallSteeringAmt;
 double desWallDistance = 30.0;
-PID pidW(&rightWallDistance, &wallSteeringAngle, &desWallDistance, 0.00005, 0.0, 0.00001, DIRECT); 
+PID pidW(&rightWallDistance, &wallSteeringAmt, &desWallDistance, 
+        0.00005, 0.0, 0.00001, DIRECT); 
         // args: input, output, setpoint, Kp, Ki, Kd, mode
 
 //high level control
@@ -63,16 +61,13 @@ void setup()
     while (!Serial) {
         ; // wait for serial port to connect. Needed for native USB port only
     }
-    //Initialize I2C communication to the let the library communicate with the sensor.
     I2C.begin();
-    //motor driver initialization
     motorDriver.init();
     
-    //IMU Sensor Initialization
-    IMU.initSensor();          //The I2C Address can be changed here inside this function in the library
-    IMU.setOperationMode(OPERATION_MODE_NDOF);   //Can be configured to other operation modes as desired
-    IMU.setUpdateMode(MANUAL);  //The default is AUTO. Changing to MANUAL requires calling the relevant 
-                                //update functions prior to calling the read functions
+    IMU.initSensor(); // I2C Address can be changed here
+    IMU.setOperationMode(OPERATION_MODE_NDOF);
+    IMU.setUpdateMode(MANUAL);  //The default is AUTO. MANUAL requires calling
+                                //update functions prior to read
     
     //initialize distance sensor pins
     for(int i = 0; i < numDistSensors; i++) {
@@ -88,7 +83,6 @@ void setup()
     motorTicksPrevL = motorEncL.read();
     motorTicksPrevR = motorEncR.read();
     lastEncoderTime = millis();
-    lastMessage = lastEncoderTime;
 }
 
 void loop() 
@@ -113,26 +107,25 @@ void loop()
     motorDriver.setM1Speed(motorCmdR); 
     stopIfFault();
     
+    //send ultrasonic pulses
+    digitalWrite(trigPins[currDistSensor], HIGH);
+    delayMicroseconds(5);
+    digitalWrite(trigPins[currDistSensor], LOW);
+    //read time till pulse returns, convert time to distance (cm)
+    unsigned long duration = pulseIn(echoPins[currDistSensor], HIGH, 5000);
+    distances[currDistSensor] = double(duration) * M;
+    if (distances[currDistSensor] == 0.0) { // ping never returned
+        distances[currDistSensor] = 150.0;
+    }
+    currDistSensor = (currDistSensor + 1) % numDistSensors;
 
     if(cycleCounter >= 4) { 
         // inner motorVel PID loop occurs 5x faster than outer steeringAngle PID loop
         cycleCounter = 0;
-        
-        for(int i = 0; i < numDistSensors; i++) {
-            //send ultrasonic pulses
-            digitalWrite(trigPins[i], HIGH);
-            delayMicroseconds(5);
-            digitalWrite(trigPins[i], LOW);
-            //read time till pulse returns, convert time to distance (cm)
-            distances[i] = double(pulseIn(echoPins[i], HIGH, 5000)) * M;
-            if (distances[i] == 0.0) { // error state, ping never returned
-                distances[i] = 150.0;
-            }
-        }
             
         //update IMU information
         IMU.updateEuler();     
-        IMU.updateCalibStatus();  //Update the Calibration Status
+        IMU.updateCalibStatus(); // Update the Calibration Status
 
         //right wall following
         rightWallDistance = distances[RIGHT_SIDE];
@@ -154,10 +147,11 @@ void loop()
         switch(gait) {
         case 1: //go straight
             if (abs(currentYaw - initialYaw) <= 10) {
-                if (wallError > 0) {
-                    desiredVelR = nominalForwardSpeed - abs(wallSteeringAngle);
-                } else if (wallError < 0) {
-                    desiredVelL = nominalForwardSpeed - abs(wallSteeringAngle);
+                // TODO: include deadband region
+                if (wallSteeringAmt > 0) {
+                    desiredVelL = nominalForwardSpeed - abs(wallSteeringAmt);
+                } else if (wallSteeringAmt < 0) {
+                    desiredVelR = nominalForwardSpeed - abs(wallSteeringAmt);
                 }
             } else if(currentYaw > initialYaw) {
                 desiredVelL = 0.25;
@@ -183,7 +177,7 @@ void loop()
                 desiredYaw = 90;
                 motorDriver.setM1Brake(400);
                 motorDriver.setM2Brake(400);
-                delay(1000);
+                delay(1000); // bad
             }
             break;
             case 3:
@@ -194,12 +188,8 @@ void loop()
                 desiredVelL = 0.5;
                 desiredVelR = 0.4;
             }
-            
-    //        desiredVelL = 0.25;
-    //        desiredVelR = 0.35;
 
             if (wallDetected) {
-    //          delayMicroseconds(500);
                 gait = 1;
             }
             break;
@@ -239,3 +229,4 @@ void stopIfFault()
         while(1);
     }
 }
+
