@@ -7,7 +7,7 @@ import processing.serial.*;
 /* SETTINGS BEGIN */
 
 // Serial port to connect to
-String serialPortName = "/dev/tty.usbmodem1411";
+String serialPortName = "/dev/cu.usbmodem1421"; // "/dev/tty.usbmodem1411";
 
 // If you want to debug the plotter without using a real serial port set this to true
 boolean mockupSerial = false;
@@ -74,7 +74,7 @@ void setup() {
   // start serial communication
   if (!mockupSerial) {
     println(Serial.list());
-    serialPortName = Serial.list()[0];
+    serialPortName = Serial.list()[1];
     serialPort = new Serial(this, serialPortName, 115200);
   }
   else {

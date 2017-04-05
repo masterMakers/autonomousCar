@@ -1,36 +1,23 @@
 
-#include <PID_v1.h>
 #include "DualVNH5019MotorShield.h"
 #include <Encoder.h>
+#include <PID_v1.h>
 
 // Tuning parameters
-float Kp = 0;
-float Ki = 10;
-float Kd = 0;
-double Input, Output;
-double Setpoint = 0;
-PID mPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
+double mInput, mOutput, mSetpoint;
+PID mPID(&mInput, &mOutput, &mSetpoint, 0.004, 0, 0.001, DIRECT);
+                                  // Kp, Ki, Kd
 
 const double K = 1000.0 / (240 / (0.1524 * 3.14159)); // (ms/s) / (ticksPerMeter)
-                                        // ticksPerMeter = ticksPerRev / MetersPerRev
+                           // ticksPerMeter = ticksPerRev / MetersPerRev
 
-const unsigned long serialPing = 500; // ping interval in ms
-unsigned long now = 0;
+unsigned int serialPing = 500; // ping interval in ms
 unsigned long lastMessage = 0;
 unsigned long lastCompute = 0;
-#define BUFFER_SIZE 8 // total message size = BUFFER_SIZE + 2
 
 DualVNH5019MotorShield motorDriver(11, 5, 13, A0, 7, 8, 12, A1);
 Encoder motorEnc(2, 3);
 long motorTicksPrev;
-
-void establishContact() {
-  while (Serial.available() <= 0) {
-    Serial.println('A');
-    delay(300);
-  }
-  int a = Serial.read();
-}
 
 void setup()
 {
@@ -40,62 +27,81 @@ void setup()
     }
 
     motorDriver.init();
-    mPID.SetMode(AUTOMATIC);
-
     motorTicksPrev = motorEnc.read();
-    lastCompute = millis();
-    lastMessage = lastCompute;
+
+    mInput = 0.0;
+    mSetpoint = 1.0 * 1000.0;
+    mPID.SetOutputLimits(-400, 400);
+    //mPID.SetSampleTime(100);
+    mPID.SetMode(AUTOMATIC);
+    unsigned long now = millis();
+    lastCompute = now;
+    lastMessage = now;
 }
 
 void loop()
 {
     // velocity calculation
     long motorTicks = motorEnc.read();
-    now = millis();
+    unsigned long now = millis();
     double dt = double(now - lastCompute);
     lastCompute = now;
 
-    Input = K * ((double)temp) / dt; // m/s
+    double in = double(motorTicks - motorTicksPrev) * K / dt;
+    mInput = int(in * 1000.0);
     motorTicksPrev = motorTicks;
 
     mPID.Compute();
-    motorDriver.setM2Speed(Output); //speed is between -400 and 400
+    motorDriver.setM2Speed(int(mOutput)); //speed is between -400 and 400
     stopIfFault();
 
+    //if(isnan(Output)) Serial.println("Error");
+    
     if((now - lastMessage) > serialPing) {
-        char buffer[BUFFER_SIZE];
-        snprintf(buffer, BUFFER_SIZE, "%f", Input);
-        Serial.print(buffer);
-        Serial.print(' ');
-        snprintf(buffer, BUFFER_SIZE, "%f", Output);
-        Serial.println(buffer);
-
         // Serial.write('s');
         // Serial.write(Input);
+
+        Serial.print(mInput / 1000.0);
+        Serial.print(" ");
+        Serial.println(mOutput);
 
         lastMessage = now;
     }
 
+    delay(10);
+    
     if (Serial.available() > 0) { // check for new commands
-        char inByte = (char)Serial.read();
-        float val = Serial.parseFloat();
+        char inByte = char(Serial.read());
+        double val = double(Serial.parseFloat());
 
         switch(inByte) {
         case 's' :
-            Setpoint = (double)val;
+            mSetpoint = int(val * 1000.0);
             break;
         case 'p' :
-            Kp = val;
-            mPID.SetTunings(Kp, Ki, Kd);
+            mPID.SetTunings(val, mPID.GetKi(), mPID.GetKd());
             break;
         case 'd' :
-            Kd = val;
-            mPID.SetTunings(Kp, Ki, Kd);
+            mPID.SetTunings(mPID.GetKp(), mPID.GetKi(), val);
             break;
         case 'i' :
-            Ki = val;
-            mPID.SetTunings(Kp, Ki, Kd);
+            mPID.SetTunings(mPID.GetKp(), val, mPID.GetKd());
             break;
         }
     }
 }
+
+
+//make sure motors connected
+void stopIfFault()
+{
+    if (motorDriver.getM1Fault()) {
+        Serial.println("M1 motor connection fault");
+        while(1);
+    }
+    if (motorDriver.getM2Fault()) {
+        Serial.println("M2 motor connection fault");
+        while(1);
+    }
+}
+

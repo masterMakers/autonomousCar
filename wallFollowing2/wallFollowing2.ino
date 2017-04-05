@@ -95,14 +95,21 @@ void loop()
     double dt = double(now - lastEncoderTime);
     lastEncoderTime = now;
 
-    motorVelL = K * double(motorTicksL - motorTicksPrevL) / dt; // m/s
-    motorVelR = K * double(motorTicksR - motorTicksPrevR) / dt;
+    double in;
+    in = K * double(motorTicksL - motorTicksPrevL) / dt; // m/s
+    motorVelL = int(in * 1000.0);
+    in = K * double(motorTicksR - motorTicksPrevR) / dt;
+    motorVelR = int(in * 1000.0);
     motorTicksPrevL = motorTicksL;
     motorTicksPrevR = motorTicksR;
 
     //low level motor control
+    desiredVelL = int(desiredVelL * 1000.0);
+    desiredVelR = int(desiredVelR * 1000.0);
     pidL.Compute();
     pidR.Compute();
+    desiredVelL /= 1000.0;
+    desiredVelR /= 1000.0;
     motorDriver.setM2Speed(motorCmdL); //speed is between -400 and 400
     motorDriver.setM1Speed(motorCmdR); 
     stopIfFault();
