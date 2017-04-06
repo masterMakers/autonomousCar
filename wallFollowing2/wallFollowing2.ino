@@ -27,7 +27,7 @@ long motorTicksPrevL;
 long motorTicksPrevR;
 unsigned long lastEncoderTime = 0;
 int cycleCounter = 0;
-double motorVelL, motorCmdL, motorVelR, motorCmdR;
+double motorVelL = 0.0, motorCmdL = 0.0, motorVelR = 0.0, motorCmdR = 0.0;
 double desiredVelL = 1.0;
 double desiredVelR = 1.0;
 PID pidL(&motorVelL, &motorCmdL, &desiredVelL, 5.0, 0.0, 30.0, DIRECT);
@@ -38,7 +38,7 @@ const double K = 1000.0 / (240 / (0.1524 * 3.14159)); // (ms/s) / (ticksPerMeter
 
 //wall following
 double nominalForwardSpeed = 0.5;
-double rightWallDistance, wallSteeringAmt;
+double rightWallDistance = 0.0, wallSteeringAmt = 0.0;
 double desWallDistance = 30.0;
 PID pidW(&rightWallDistance, &wallSteeringAmt, &desWallDistance, 
         0.00005, 0.0, 0.00001, DIRECT); 
@@ -76,13 +76,20 @@ void setup()
     }
     initialYaw = IMU.readEulerHeading();
 
+    mPID.SetOutputLimits(-400, 400);
+    mPID.SetSampleTime(10);
     pidL.SetMode(AUTOMATIC);
+    mPID.SetOutputLimits(-400, 400);
+    mPID.SetSampleTime(10);
     pidR.SetMode(AUTOMATIC);
+    mPID.SetOutputLimits(-5, 5);
+    mPID.SetSampleTime(50);
     pidW.SetMode(AUTOMATIC);
 
     motorTicksPrevL = motorEncL.read();
     motorTicksPrevR = motorEncR.read();
     lastEncoderTime = millis();
+    delay(10);
 }
 
 void loop() 
@@ -95,21 +102,14 @@ void loop()
     double dt = double(now - lastEncoderTime);
     lastEncoderTime = now;
 
-    double in;
-    in = K * double(motorTicksL - motorTicksPrevL) / dt; // m/s
-    motorVelL = int(in * 1000.0);
-    in = K * double(motorTicksR - motorTicksPrevR) / dt;
-    motorVelR = int(in * 1000.0);
+    motorVelL = K * double(motorTicksL - motorTicksPrevL) / dt; // m/s
+    motorVelR = K * double(motorTicksR - motorTicksPrevR) / dt;
     motorTicksPrevL = motorTicksL;
     motorTicksPrevR = motorTicksR;
 
     //low level motor control
-    desiredVelL = int(desiredVelL * 1000.0);
-    desiredVelR = int(desiredVelR * 1000.0);
     pidL.Compute();
     pidR.Compute();
-    desiredVelL /= 1000.0;
-    desiredVelR /= 1000.0;
     motorDriver.setM2Speed(motorCmdL); //speed is between -400 and 400
     motorDriver.setM1Speed(motorCmdR); 
     stopIfFault();

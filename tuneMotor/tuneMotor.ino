@@ -3,9 +3,8 @@
 #include <Encoder.h>
 #include <PID_v1.h>
 
-// Tuning parameters
-double mInput, mOutput, mSetpoint;
-PID mPID(&mInput, &mOutput, &mSetpoint, 0.004, 0, 0.001, DIRECT);
+double mInput = 0.0, mOutput = 0.0, mSetpoint = 1.0;
+PID mPID(&mInput, &mOutput, &mSetpoint, 40, 0, 10, DIRECT);
                                   // Kp, Ki, Kd
 
 const double K = 1000.0 / (240 / (0.1524 * 3.14159)); // (ms/s) / (ticksPerMeter)
@@ -29,14 +28,13 @@ void setup()
     motorDriver.init();
     motorTicksPrev = motorEnc.read();
 
-    mInput = 0.0;
-    mSetpoint = 1.0 * 1000.0;
     mPID.SetOutputLimits(-400, 400);
-    //mPID.SetSampleTime(100);
+    mPID.SetSampleTime(10);
     mPID.SetMode(AUTOMATIC);
     unsigned long now = millis();
     lastCompute = now;
     lastMessage = now;
+    delay(10);
 }
 
 void loop()
@@ -44,24 +42,21 @@ void loop()
     // velocity calculation
     long motorTicks = motorEnc.read();
     unsigned long now = millis();
-    double dt = double(now - lastCompute);
+    double dt = (double)(now - lastCompute);
     lastCompute = now;
 
-    double in = double(motorTicks - motorTicksPrev) * K / dt;
-    mInput = int(in * 1000.0);
+    mInput = (double)(motorTicks - motorTicksPrev) * K / dt;
+    mOutput = mPID.Compute(mInput, mOutput, mSetpoint);
     motorTicksPrev = motorTicks;
 
-    mPID.Compute();
-    motorDriver.setM2Speed(int(mOutput)); //speed is between -400 and 400
+    motorDriver.setM2Speed((int)mOutput); //speed is between -400 and 400
     stopIfFault();
-
-    //if(isnan(Output)) Serial.println("Error");
     
     if((now - lastMessage) > serialPing) {
         // Serial.write('s');
         // Serial.write(Input);
 
-        Serial.print(mInput / 1000.0);
+        Serial.print(mInput);
         Serial.print(" ");
         Serial.println(mOutput);
 
@@ -71,12 +66,12 @@ void loop()
     delay(10);
     
     if (Serial.available() > 0) { // check for new commands
-        char inByte = char(Serial.read());
-        double val = double(Serial.parseFloat());
+        char inByte = (char)Serial.read();
+        double val = (double)Serial.parseFloat();
 
         switch(inByte) {
         case 's' :
-            mSetpoint = int(val * 1000.0);
+            mSetpoint = val;
             break;
         case 'p' :
             mPID.SetTunings(val, mPID.GetKi(), mPID.GetKd());
