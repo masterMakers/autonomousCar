@@ -5,37 +5,20 @@
 #include <DualVNH5019MotorShield.h>
 
 DualVNH5019MotorShield motorDriver(11, 5, 13, A0, 7, 8, 12, A1);
-Encoder motorEncL(18, 19);
-Encoder motorEncR(2, 3);
+Encoder motorEncL(2, 3);
+Encoder motorEncR(18, 19);
 NAxisMotion IMU;
 
 //distance sensors
-const int numDistSensors = 5;
 const int trigPins[numDistSensors] = {22,24,32,34,36};
 const int echoPins[numDistSensors] = {23,25,33,35,37};
-const int LEFT_CORNER = 0;
-const int LEFT_SIDE = 1;
-const int RIGHT_SIDE = 2;
-const int RIGHT_CORNER = 3;
-const int FRONT = 4;
+const int LEFT_CORNER = 0, LEFT_SIDE = 1, RIGHT_SIDE = 2, RIGHT_CORNER = 3, FRONT = 4, numDistSensors = 5;
 double distances[numDistSensors];
 const double M = 1 / 29.0 / 2.0; // distance calibration
 int currDistSensor = 0;
 
-//motor control
-long motorTicksPrevL;
-long motorTicksPrevR;
-unsigned long lastEncoderTime = 0;
-double motorVelL = 0.0, motorCmdL = 0.0, motorVelR = 0.0, motorCmdR = 0.0;
-double desiredVelL = 1.0;
-double desiredVelR = 1.0;
-PID pidL(&motorVelL, &motorCmdL, &desiredVelL, 40.0, 0.0, 10.0, DIRECT);
-PID pidR(&motorVelR, &motorCmdR, &desiredVelR, 40.0, 0.0, 10.0, DIRECT); 
-        // args: input, output, setpoint, Kp, Ki, Kd, mode
-const double K = 1000.0 / (240 / (0.1524 * 3.14159)); // (ms/s) / (ticksPerMeter)
-                                        // ticksPerMeter = ticksPerRev / MetersPerRev
-
 //wall following
+const double wheelBase = 0.25; // m
 double nominalForwardSpeed = 0.5;
 double rightWallDistance = 0.0, wallSteeringAmt = 0.0;
 double desWallDistance = 30.0;
@@ -43,9 +26,17 @@ PID pidW(&rightWallDistance, &wallSteeringAmt, &desWallDistance,
         0.00005, 0.0, 0.00001, DIRECT); 
         // args: input, output, setpoint, Kp, Ki, Kd, mode
 
+//motor control
+double motorVelL = 0.0, motorCmdL = 0.0, motorVelR = 0.0, motorCmdR = 0.0;
+double desiredVelL = nominalForwardSpeed;
+double desiredVelR = nominalForwardSpeed;
+PID pidL(&motorVelL, &motorCmdL, &desiredVelL, 150.0, 15.0, 2.0, DIRECT);
+PID pidR(&motorVelR, &motorCmdR, &desiredVelR, 150.0, 15.0, 2.0, DIRECT); 
+        // args: input, output, setpoint, Kp, Ki, Kd, mode
+
 //high level control
 int gait = 1; //1 is go straight fast, 2 means turn 90 degrees left
-double wheelBase = 0.2; // m
+
 double initialYaw = 0;
 double desiredYaw = 0;
 double currentYaw;
@@ -76,19 +67,21 @@ void setup()
     }
     initialYaw = IMU.readEulerHeading();
 
-    mPID.SetOutputLimits(-400, 400);
-    mPID.SetSampleTime(10);
+    double K = 1000.0 / (240 / (0.1524 * 3.14159));
+                // (ms/s) / (ticksPerMeter)
+                // ticksPerMeter = ticksPerRev / MetersPerRev
+    pidL.SetOutputLimits(0, 400);  // -400 for backwards motion
+    pidL.SetSampleTime(50);
+    pidL.SetWheelParam(K);
     pidL.SetMode(AUTOMATIC);
-    mPID.SetOutputLimits(-400, 400);
-    mPID.SetSampleTime(10);
+    pidR.SetOutputLimits(0, 400);  // -400 for backwards motion
+    pidR.SetSampleTime(50);
+    pidR.SetWheelParam(K);
     pidR.SetMode(AUTOMATIC);
-    mPID.SetOutputLimits(-5, 5);
-    mPID.SetSampleTime(50);  // outer PID loop set to run ~5x slower than inner loop
+    pidW.SetOutputLimits(-5, 5);
+    pidW.SetSampleTime(150);  // outer PID loop set to run ~3x slower than inner loop
     pidW.SetMode(AUTOMATIC);
 
-    motorTicksPrevL = motorEncL.read();
-    motorTicksPrevR = motorEncR.read();
-    lastEncoderTime = millis();
     delay(10);
 }
 
@@ -122,23 +115,9 @@ void loop()
 
 void wheelSpeedFeedback()
 {
-    //update motor speed
-    long motorTicksL = motorEncL.read();
-    long motorTicksR = motorEncR.read();
-    
-    unsigned long now = millis();
-    double dt = double(now - lastEncoderTime);
-    lastEncoderTime = now;
-
-    motorVelL = K * double(motorTicksL - motorTicksPrevL) / dt; // m/s
-    motorVelR = K * double(motorTicksR - motorTicksPrevR) / dt;
-    motorTicksPrevL = motorTicksL;
-    motorTicksPrevR = motorTicksR;
-
-    //low level motor control
-    pidL.Compute();
-    pidR.Compute();
-    motorDriver.setM2Speed(motorCmdL); //speed is between -400 and 400
+    pidL.ComputeVelocity(motorEncL.read());
+    motorDriver.setM2Speed(motorCmdL);
+    pidR.ComputeVelocity(motorEncR.read());
     motorDriver.setM1Speed(motorCmdR); 
     stopIfFault();
 }
@@ -240,10 +219,10 @@ void gaitControl()
 // robot turns in the direction of the slower wheel
 double turningSpeed(double turningRadius)
 {
-    double Vl = nominalForwardSpeed;
+    double V1 = nominalForwardSpeed;
     double a = (2 * turningRadius / wheelBase);
-    double Vr = (a + 1) * Vl / (a - 1);
-    return constrain(Vr, 0, nominalForwardSpeed);
+    double V2 = (a + 1) * V1 / (a - 1);
+    return constrain(V2, 0, nominalForwardSpeed);
 }
 
 // time to achieve a certain change in heading

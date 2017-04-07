@@ -4,19 +4,15 @@
 #include <PID_v1.h>
 
 double mInput = 0.0, mOutput = 0.0, mSetpoint = 1.0;
-PID mPID(&mInput, &mOutput, &mSetpoint, 40, 0, 10, DIRECT);
+PID mPID(&mInput, &mOutput, &mSetpoint, 150.0, 15.0, 2.0, DIRECT);
                                   // Kp, Ki, Kd
-
-const double K = 1000.0 / (240 / (0.1524 * 3.14159)); // (ms/s) / (ticksPerMeter)
-                           // ticksPerMeter = ticksPerRev / MetersPerRev
 
 unsigned int serialPing = 500; // ping interval in ms
 unsigned long lastMessage = 0;
-unsigned long lastCompute = 0;
 
 DualVNH5019MotorShield motorDriver(11, 5, 13, A0, 7, 8, 12, A1);
-Encoder motorEnc(2, 3);
-long motorTicksPrev;
+//Encoder motorEnc(2, 3);
+Encoder motorEnc(18, 19);
 
 void setup()
 {
@@ -26,44 +22,34 @@ void setup()
     }
 
     motorDriver.init();
-    motorTicksPrev = motorEnc.read();
 
-    mPID.SetOutputLimits(-400, 400);
-    mPID.SetSampleTime(10);
+    mPID.SetOutputLimits(0, 400); // -400 for backwards motion
+    mPID.SetSampleTime(50);
+    double K = 1000.0 / (240 / (0.1524 * 3.14159)); 
+                  // (ms/s) / (ticksPerMeter)
+                  // ticksPerMeter = ticksPerRev / MetersPerRev
+    mPID.SetWheelParam(K);
     mPID.SetMode(AUTOMATIC);
     unsigned long now = millis();
-    lastCompute = now;
     lastMessage = now;
     delay(10);
 }
 
 void loop()
 {
-    // velocity calculation
-    long motorTicks = motorEnc.read();
-    unsigned long now = millis();
-    double dt = (double)(now - lastCompute);
-    lastCompute = now;
-
-    mInput = (double)(motorTicks - motorTicksPrev) * K / dt;
-    mOutput = mPID.Compute(mInput, mOutput, mSetpoint);
-    motorTicksPrev = motorTicks;
-
-    motorDriver.setM2Speed((int)mOutput); //speed is between -400 and 400
+    mPID.ComputeVelocity(motorEnc.read());
+    //motorDriver.setM2Speed((int)mOutput);
+    motorDriver.setM1Speed((int)mOutput);
     stopIfFault();
     
+    unsigned long now = millis();
     if((now - lastMessage) > serialPing) {
-        // Serial.write('s');
-        // Serial.write(Input);
-
         Serial.print(mInput);
         Serial.print(" ");
-        Serial.println(mOutput);
+        Serial.println((int)mOutput);
 
         lastMessage = now;
     }
-
-    delay(10);
     
     if (Serial.available() > 0) { // check for new commands
         char inByte = (char)Serial.read();
