@@ -22,6 +22,8 @@ class PID
                                           //   called every time loop() cycles. ON/OFF and
                                           //   calculation frequency can be set using SetMode
                                           //   SetSampleTime respectively
+    
+    bool ComputeAngle();
     bool ComputeVelocity(long);
     void SetWheelParam(double);
 
