@@ -10,9 +10,10 @@ Encoder motorEncR(18, 19);
 NAxisMotion IMU;
 
 //distance sensors
-const int trigPins[numDistSensors] = {22,24,32,34,36};
-const int echoPins[numDistSensors] = {23,25,33,35,37};
-const int LEFT_CORNER = 0, LEFT_SIDE = 1, RIGHT_SIDE = 2, RIGHT_CORNER = 3, FRONT = 4, numDistSensors = 5;
+const int numDistSensors = 5;
+const int trigPins[numDistSensors] = {22,24,26,28,30};
+const int echoPins[numDistSensors] = {23,25,27,29,31};
+const int LEFT_CORNER = 0, LEFT_SIDE = 1, RIGHT_SIDE = 2, RIGHT_CORNER = 3, FRONT = 4;
 double distances[numDistSensors];
 const double M = 1 / 29.0 / 2.0; // distance calibration
 int currDistSensor = 0;
@@ -23,7 +24,7 @@ double nominalForwardSpeed = 0.5;
 double rightWallDistance = 0.0, wallSteeringAmt = 0.0;
 double desWallDistance = 30.0;
 PID pidW(&rightWallDistance, &wallSteeringAmt, &desWallDistance, 
-        0.00005, 0.0, 0.00001, DIRECT); 
+        0.05, 0.0, 0, DIRECT); 
         // args: input, output, setpoint, Kp, Ki, Kd, mode
 
 //motor control
@@ -37,6 +38,7 @@ PID pidR(&motorVelR, &motorCmdR, &desiredVelR, 150.0, 15.0, 2.0, DIRECT);
 //high level control
 int gait = 1; //1 is go straight fast, 2 means turn 90 degrees left
 
+double yaw = 0;
 double initialYaw = 0;
 double desiredYaw = 0;
 double currentYaw;
@@ -91,25 +93,26 @@ void loop()
     
     updateSensorReadings();
 
+    // running average on right_side ultrasonic sensor?
+    // average with left side?
+
     wallFollowingFeedback();
 
     gaitControl();
 
     if(debug) {
         Serial.print(" Yaw: ");
-        Serial.print(currentYaw); //Heading data
-        Serial.print(" deg ");
-        Serial.print(" M1 Des Vel: ");
+        Serial.print(yaw); //Heading, deg
+        Serial.print(" L_Des_Vel: ");
         Serial.print(desiredVelL);
-        Serial.print(" M2 Des Vel: ");
+        Serial.print(" R_Des_Vel: ");
         Serial.print(desiredVelR);
-        Serial.print(" Wall Detected: ");
+        Serial.print(" Wall_Detected: ");
         Serial.print(wallDetected);
         Serial.print(" Gait:");
         Serial.print(gait);    
-        Serial.print(" Right sensor reading:");
-        Serial.print(rightWallDistance);
-        Serial.println();
+        Serial.print(" Right_sensor:");
+        Serial.println(rightWallDistance);
     }
 }
 
@@ -154,7 +157,8 @@ void wallFollowingFeedback()
 void gaitControl()
 {
     //behavioral control
-    if(IMU.readEulerHeading() - desiredYaw >= 180) {
+    yaw = IMU.readEulerHeading();
+    if(yaw - desiredYaw >= 180) {
         currentYaw = IMU.readEulerHeading() - desiredYaw - 360;
     } else {
         currentYaw = IMU.readEulerHeading() - desiredYaw;
@@ -165,19 +169,17 @@ void gaitControl()
     // finite state automaton
     switch(gait) {
     case 1: //go straight
-        if (abs(currentYaw - initialYaw) <= 10) {
-            // TODO: include deadband region
+        //deadband region
+        if (abs(currentYaw - initialYaw) <= 15) {
             if (wallSteeringAmt > 0) {
                 desiredVelL = nominalForwardSpeed - abs(wallSteeringAmt);
             } else if (wallSteeringAmt < 0) {
                 desiredVelR = nominalForwardSpeed - abs(wallSteeringAmt);
             }
         } else if(currentYaw > initialYaw) {
-            desiredVelL = 0.25;
-            desiredVelR = 0.35;
-        } else if(currentYaw < initialYaw) {
-            desiredVelL = 0.35;
             desiredVelR = 0.25;
+        } else if(currentYaw < initialYaw) {
+            desiredVelL = 0.25;
         }
 
         if (rightWallDistance > 120.0 && wallDetected) {
@@ -188,15 +190,12 @@ void gaitControl()
         break;
     case 2: //turn 90 degrees left
         desiredVelL = 0.5;
-        desiredVelR = -0.5;
+        desiredVelR = 0.0;
         wallDetected = false;
         if (abs(currentYaw - initialYaw) > 90) {
             gait = 3;
             counter = 0;
             desiredYaw = 90;
-            motorDriver.setM1Brake(400);
-            motorDriver.setM2Brake(400);
-            delay(1000); // bad
         }
         break;
         case 3:
@@ -245,4 +244,5 @@ void stopIfFault()
         while(1);
     }
 }
+
 
