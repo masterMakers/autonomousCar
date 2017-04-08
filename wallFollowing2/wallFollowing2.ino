@@ -10,10 +10,10 @@ Encoder motorEncR(18, 19);
 NAxisMotion IMU;
 
 //distance sensors
-const int numDistSensors = 5;
-const int trigPins[numDistSensors] = {22,24,26,28,30};
-const int echoPins[numDistSensors] = {23,25,27,29,31};
-const int LEFT_CORNER = 0, LEFT_SIDE = 1, RIGHT_SIDE = 2, RIGHT_CORNER = 3, FRONT = 4;
+const int numDistSensors = 6;
+const int trigPins[numDistSensors] = {22,24,26,28,30,32};
+const int echoPins[numDistSensors] = {23,25,27,29,31,33};
+const int LEFT_CORNER = 0, LEFT_SIDE = 1, RIGHT_SIDE = 2, RIGHT_CORNER = 3, FRONT = 4, REAR = 5;
 double distances[numDistSensors];
 const double M = 1 / 29.0 / 2.0; // distance calibration
 int currDistSensor = 0;
@@ -31,8 +31,14 @@ PID pidW(&rightWallDistance, &wallSteeringAmt, &desWallDistance,
 double motorVelL = 0.0, motorCmdL = 0.0, motorVelR = 0.0, motorCmdR = 0.0;
 double desiredVelL = nominalForwardSpeed;
 double desiredVelR = nominalForwardSpeed;
-PID pidL(&motorVelL, &motorCmdL, &desiredVelL, 150.0, 15.0, 2.0, DIRECT);
-PID pidR(&motorVelR, &motorCmdR, &desiredVelR, 150.0, 15.0, 2.0, DIRECT); 
+
+// kp = 150. ki = 15, kd = 2: tuned by Bereket on 6th April 2017
+// kp = 150. ki = 80, kd = 2: tuned by Daniel and Puneet on 8th April 2017. 
+// Gives close tracking and works for SetOutputLimits(-400, 400). 
+// Tried to jump from -4.0 to +4.0 velocities and velocity changes in same direction
+
+PID pidL(&motorVelL, &motorCmdL, &desiredVelL, 150.0, 80.0, 2.0, DIRECT); 
+PID pidR(&motorVelR, &motorCmdR, &desiredVelR, 150.0, 80.0, 2.0, DIRECT); 
         // args: input, output, setpoint, Kp, Ki, Kd, mode
 
 //high level control
@@ -72,11 +78,11 @@ void setup()
     double K = 1000.0 / (240 / (0.1524 * 3.14159));
                 // (ms/s) / (ticksPerMeter)
                 // ticksPerMeter = ticksPerRev / MetersPerRev
-    pidL.SetOutputLimits(0, 400);  // -400 for backwards motion
+    pidL.SetOutputLimits(-400, 400);  // -400 for backwards motion
     pidL.SetSampleTime(50);
     pidL.SetWheelParam(K);
     pidL.SetMode(AUTOMATIC);
-    pidR.SetOutputLimits(0, 400);  // -400 for backwards motion
+    pidR.SetOutputLimits(-400, 400);  // -400 for backwards motion
     pidR.SetSampleTime(50);
     pidR.SetWheelParam(K);
     pidR.SetMode(AUTOMATIC);
@@ -101,6 +107,8 @@ void loop()
     gaitControl();
 
     if(debug) {
+        Serial.print(" Rear:");
+        Serial.print(distances[REAR]);    
         Serial.print(" Yaw: ");
         Serial.print(yaw); //Heading, deg
         Serial.print(" L_Des_Vel: ");
@@ -132,7 +140,7 @@ void updateSensorReadings()
     delayMicroseconds(5);
     digitalWrite(trigPins[currDistSensor], LOW);
     //read time till pulse returns, convert time to distance (cm)
-    unsigned long duration = pulseIn(echoPins[currDistSensor], HIGH, 5000);
+    unsigned long duration = pulseIn(echoPins[currDistSensor], HIGH, 10000);
     distances[currDistSensor] = double(duration) * M;
     if (distances[currDistSensor] == 0.0) { // ping never returned
         distances[currDistSensor] = 150.0;
