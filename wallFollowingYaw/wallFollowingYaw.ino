@@ -21,6 +21,7 @@ int currDistSensor = 0;
 const double wheelBase = 0.25; // m
 double nominalForwardSpeed = 0.5;
 double pathHeading = 0.0;
+bool wallDetected = false;
 
 double yaw = 0.0, wallSteeringAmt = 0.0, desiredYaw = 0.0;
 PID pidW(&yaw, &wallSteeringAmt, &desiredYaw, 
@@ -41,14 +42,6 @@ enum gait {
   TURN_LEFT
 };
 gait currGait = STRAIGHT;
-
-double yaw = 0;
-double initialYaw = 0;
-double desiredYaw = 0;
-double currentYaw;
-double yawChange = 0.0;
-int counter = 0;
-bool wallDetected = false;
 
 bool debug = true;
 
@@ -71,7 +64,10 @@ void setup()
         pinMode(trigPins[i], OUTPUT);
         pinMode(echoPins[i], INPUT);
     }
-    initialYaw = IMU.readEulerHeading();
+    // initialize heading
+    yaw = IMU.readEulerHeading();
+    desiredYaw = yaw;
+    pathHeading = yaw;
 
     double K = 1000.0 / (240 / (0.1524 * 3.14159));
                 // (ms/s) / (ticksPerMeter)
@@ -111,7 +107,7 @@ void loop()
         Serial.print(" Wall_Detected: ");
         Serial.print(wallDetected);
         Serial.print(" Gait:");
-        Serial.print(gait);    
+        Serial.print(currGait);    
         Serial.print(" Right_sensor:");
         Serial.println(distances[RIGHT_SIDE]);
     }
