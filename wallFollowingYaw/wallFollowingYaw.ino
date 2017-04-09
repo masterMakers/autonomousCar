@@ -11,8 +11,8 @@ NAxisMotion IMU;
 
 //distance sensors
 const int LEFT_SIDE = 0, RIGHT_SIDE = 1, FRONT = 2, BACK = 3, numDistSensors = 4;
-const int trigPins[numDistSensors] = {24,26,30,32};  // TODO: fix back pins
-const int echoPins[numDistSensors] = {25,27,31,33};
+const int trigPins[numDistSensors] = {24,26,28,32};  // TODO: fix back pins
+const int echoPins[numDistSensors] = {25,27,29,33};
 double distances[numDistSensors];
 const double M = 1 / 29.0 / 2.0; // distance calibration
 int currDistSensor = 0;
@@ -32,8 +32,13 @@ PID pidW(&yaw, &wallSteeringAmt, &desiredYaw,
 double motorVelL = 0.0, motorCmdL = 0.0, motorVelR = 0.0, motorCmdR = 0.0;
 double desiredVelL = nominalForwardSpeed;
 double desiredVelR = nominalForwardSpeed;
-PID pidL(&motorVelL, &motorCmdL, &desiredVelL, 150.0, 15.0, 2.0, DIRECT);
-PID pidR(&motorVelR, &motorCmdR, &desiredVelR, 150.0, 15.0, 2.0, DIRECT); 
+
+// kp = 150. ki = 15, kd = 2: tuned by Bereket on 6th April 2017
+// kp = 150. ki = 80, kd = 2: tuned by Daniel and Puneet on 8th April 2017. 
+// Gives close tracking and works for SetOutputLimits(-400, 400). 
+// Tried to jump from -4.0 to +4.0 velocities and velocity changes in same direction
+PID pidL(&motorVelL, &motorCmdL, &desiredVelL, 150.0, 80.0, 2.0, DIRECT);
+PID pidR(&motorVelR, &motorCmdR, &desiredVelR, 150.0, 80.0, 2.0, DIRECT); 
         // args: input, output, setpoint, Kp, Ki, Kd, mode
 
 //high level control
@@ -100,6 +105,8 @@ void loop()
     if(debug) {
         Serial.print(" Yaw: ");
         Serial.print(yaw); //Heading, deg
+        Serial.print(" Des_yaw: ");
+        Serial.print(desiredYaw); //deg
         Serial.print(" L_Des_Vel: ");
         Serial.print(desiredVelL);
         Serial.print(" R_Des_Vel: ");
@@ -108,6 +115,8 @@ void loop()
         Serial.print(wallDetected);
         Serial.print(" Gait:");
         Serial.print(currGait);    
+        Serial.print(" Left_sensor:");
+        Serial.print(distances[LEFT_SIDE]);
         Serial.print(" Right_sensor:");
         Serial.println(distances[RIGHT_SIDE]);
     }
@@ -129,17 +138,18 @@ void updateSensorReadings()
     delayMicroseconds(5);
     digitalWrite(trigPins[currDistSensor], LOW);
     //read time till pulse returns, convert time to distance (cm)
-    unsigned long duration = pulseIn(echoPins[currDistSensor], HIGH, 5000);
+    unsigned long duration = pulseIn(echoPins[currDistSensor], HIGH, 10000);
     distances[currDistSensor] = double(duration) * M;
     if (distances[currDistSensor] == 0.0) { // ping never returned
         distances[currDistSensor] = 150.0;
     }
     currDistSensor = (currDistSensor + 1) % numDistSensors;
-
+    
     //update IMU information
     IMU.updateEuler();     
     IMU.updateCalibStatus(); // Update the Calibration Status
-
+    yaw = IMU.readEulerHeading();
+    
     if(distances[RIGHT_SIDE] < 120.0) {
         wallDetected = true;
     }
@@ -161,9 +171,9 @@ void yawFeedback()
 void wallFollowing()
 {
     if(distances[RIGHT_SIDE] < 15.0) {
-        desiredYaw = pathHeading - 10.0;
-    } else if(distances[LEFT_SIDE] < 15.0) {
         desiredYaw = pathHeading + 10.0;
+    } else if(distances[LEFT_SIDE] < 15.0) {
+        desiredYaw = pathHeading - 10.0;
     } else {
         desiredYaw = pathHeading;
     }
