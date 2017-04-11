@@ -38,15 +38,15 @@ float rightWheelRevsPrevious;
 //float measure_cov[5][5];
 //float last_pose[3];
 //float last_pose_cov[3][3];
-float measurement[5];
-float control_input[2];
+// float measurement[5];
+// float control_input[2];
 
 /*************************************************************************************
 ==== Define sigma^2 ===
 *************************************************************************************/
 
 float sig_ultrasonic = pow(0.08, 2);
-float sig_imu = pow(2.5*M_PI/180, 2);
+float sig_imu = pow(2.5*3.14/180, 2);
 float sig_enc = pow(0.005, 2);
   
 /*************************************************************************************
@@ -108,7 +108,6 @@ void setup()
     // initialize heading
     yaw = IMU.readEulerHeading();
     pathHeading = yaw;
-    
 
     double K = 1000.0 / (240 / (0.1524 * 3.14159));
                 // (ms/s) / (ticksPerMeter)
@@ -134,10 +133,10 @@ void loop()
     
     updateSensorReadings();
     
-    long tic = millis();
+//    long tic = millis();
     KalmanFilterUpdate();
-    long toc = millis() - tic;
-    Serial.println(toc);
+//    long toc = millis() - tic;
+//    Serial.println(toc);
     gaitControl();
 
     hallFeedback();
@@ -157,12 +156,9 @@ void loop()
 //        Serial.print(distances[LEFT_SIDE]);
 //        Serial.print(" Right_sensor:");
 //        Serial.print(distances[RIGHT_SIDE]);
-          Serial.print(" X: ");
-          Serial.print(last_pose[0]);
-          Serial.print(" Y: ");
-          Serial.print(last_pose[1]);
-          Serial.print(" theta: ");
-          Serial.print(last_pose[2]);
+          Matrix.Print(last_pose, 1, 3, "last_pose");
+          Serial.print(" IMU.Yaw: ");
+          Serial.print(yaw);
           Serial.println();
     }
 }
@@ -232,14 +228,14 @@ void KalmanFilterUpdate()
 	/*************************************************************************************
 	Prediction Step
 	*************************************************************************************/
-	float motion_left = leftWheelDelta*2*M_PI*6/2*0.0254;
-	float motion_right = rightWheelDelta*2*M_PI*6/2*0.0254;
+	float motion_left = leftWheelDelta*2*3.14*6/2*0.0254;
+	float motion_right = rightWheelDelta*2*3.14*6/2*0.0254;
 
-	float relative_displacement = (motion_right - motion_left);
+	float relative_displacement = (motion_right - motion_left)/track_width;
 	float squareRootTerm = pow(track_width,2) - pow((motion_right - motion_left),2);
 	float B[3][2] = {{cos(last_pose[2])/2, cos(last_pose[2])/2}, {sin(last_pose[2])/2, sin(last_pose[2])/2}, {-1/sq(squareRootTerm), 1/sq(squareRootTerm)}};
-
-	float pose_pre[3] = {last_pose[0] + (motion_left + motion_right)*cos(last_pose[2])/2, last_pose[1] + (motion_left + motion_right)*sin(last_pose[2])/2, asin(relative_displacement)};
+  
+	float pose_pre[3] = {last_pose[0] + (motion_left + motion_right)*cos(last_pose[2])/2, last_pose[1] + (motion_left + motion_right)*sin(last_pose[2])/2, last_pose[2] + asin(relative_displacement)};
 
 	float temp[3][2];
 
@@ -263,16 +259,16 @@ void KalmanFilterUpdate()
 	float yaw_angle = yaw;
 	yaw_angle = fmod(yaw_angle, 360);
 	if(yaw_angle >=180)
-		yaw_angle = (yaw_angle - 360)*M_PI/180;
+		yaw_angle = (yaw_angle - 360)*3.14/180;
 	else
-		yaw_angle = (yaw_angle)*M_PI/180;	
-
+		yaw_angle = (yaw_angle)*3.14/180;	
+  
 	float Z[3] = {pose_pre[1] + distance_left*cos(pose_pre[2]) + track_width/2*cos(pose_pre[2]), pose_pre[1] - distance_right*cos(pose_pre[2]) - track_width/2*cos(pose_pre[2]), pose_pre[2] - yaw_angle};
 	float Z_obs[3] = {0.8, 0, 0};
 
 	float C[3][3] = {{0, 1, -(distance_left + track_width/2)*sin(pose_pre[2])}, {0, 1, (distance_right + track_width/2)*sin(pose_pre[2])}, {0, 0, 1}};
 	float D[3][5] = {{cos(pose_pre[2]), 0, 0, 0, 0,}, {0, -cos(pose_pre[2]), 0, 0, 0}, {0, 0, 0, 0, -1}};
-        Matrix.Print((float*)C, 3, 3, "C");
+//  Matrix.Print((float*)C, 3, 3, "C");
 	Matrix.Multiply((float*)temp, (float*)B_transpose, 3, 2, 3, (float*)pose_cov_from_control);
 
 	/*************************************************************************************
@@ -282,7 +278,7 @@ void KalmanFilterUpdate()
 
 	float K_matrix[3][3];
 	KalmanFilterConstant(3, 3, 5, (float*)C, (float*)D, (float*)pose_cov_pre, (float*)measure_cov, (float*)K_matrix);
-
+//  Matrix.Print((float*)K_matrix, 3, 3, "K_matrix");
 	/*************************************************************************************
 	Update Pose
 	x = x_pre + K*(Z_obs - Z);
@@ -292,16 +288,14 @@ void KalmanFilterUpdate()
 	float error[3];
 
 	Matrix.Subtract(Z_obs, Z, 3, 1, error);
+//  Matrix.Print(error, 1, 3, "error");
+  
 	Matrix.Multiply((float*)K_matrix, error, 3, 3, 1, pose_update);
+//  Matrix.Print(pose_update, 1, 3, "pose_update");
+ 
 	Matrix.Add(pose_pre, pose_update, 3, 1, new_pose);
 	Matrix.Copy(new_pose, 3, 1, last_pose);
-        Serial.print(" newX: ");
-          Serial.print(new_pose[0]);
-          Serial.print(" newY: ");
-          Serial.print(new_pose[1]);
-          Serial.print(" newTheta: ");
-          Serial.print(new_pose[2]);
-//          Serial.println();
+//  Matrix.Print(new_pose, 1, 3, "new_pose");
 	/*************************************************************************************
 	Update Pose_Covariance
 	P = (eye(3) - K*C)*P_pre;
@@ -334,21 +328,24 @@ void KalmanFilterConstant(int a, int b, int c, float* C, float* D, float* pose_c
 
 	float C_transpose[b][a];
 	Matrix.Transpose((float*)C, a, b, (float*)C_transpose);
-
+//  Matrix.Print((float*)C_transpose, 3, 3, "C_transpose");
+  
 	float D_transpose[c][a];
 	Matrix.Transpose((float*)D, a, c, (float*)D_transpose);
-
+//  Matrix.Print((float*)D_transpose, 3, 3, "D_transpose");
+  
 	float C_multiply_P_cov_pre[a][b];
 	float firstTerm[a][a];
-
+  
 	Matrix.Multiply((float*)C, (float*)pose_cov_pre, a, b, b, (float*)C_multiply_P_cov_pre); // a X b
 	Matrix.Multiply((float*)C_multiply_P_cov_pre, (float*)C_transpose, a, b, a, (float*)firstTerm); // a X a
-
+//  Matrix.Print((float*)firstTerm, 3, 3, "firstTerm");
+  
 	float D_multiply_measure_cov[a][c];
 	float secondTerm[a][a];
 
 	Matrix.Multiply((float*)D, (float*)measure_cov, a, c, c, (float*)D_multiply_measure_cov); // a X c
-	Matrix.Multiply((float*)D_multiply_measure_cov, (float*)D_transpose, a, c, a, (float*)firstTerm); // a X a
+	Matrix.Multiply((float*)D_multiply_measure_cov, (float*)D_transpose, a, c, a, (float*)secondTerm); // a X a
 
 	float inverseTermEKF[a][a];
 	Matrix.Add((float*)firstTerm, (float*)secondTerm, a, a, (float*)inverseTermEKF);
