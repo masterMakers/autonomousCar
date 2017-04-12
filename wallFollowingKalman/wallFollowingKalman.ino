@@ -157,7 +157,7 @@ void loop()
 //        Serial.print(" Right_sensor:");
 //        Serial.print(distances[RIGHT_SIDE]);
           Matrix.Print(last_pose, 1, 3, "last_pose");
-          Serial.print(" IMU.Yaw: ");
+          Serial.print(" IMU_Yaw: ");
           Serial.print(yaw);
           Serial.println();
     }
@@ -191,11 +191,17 @@ void updateSensorReadings()
     IMU.updateCalibStatus(); // Update the Calibration Status
     IMU.updateAccel();
     yaw = IMU.readEulerHeading();
+    yaw = fmod(yaw, 360.0);
+    if(yaw >180.0)
+      yaw = -(yaw - 360.0)*3.14/180.0;
+    else
+      yaw = -(yaw)*3.14/180.0; 
+    
     zAccel = IMU.readAccelZ();
     
     //update wheel positions
-    float leftWheelRevs = motorEncL.read() / 240;
-    float rightWheelRevs = motorEncR.read() / 240;
+    float leftWheelRevs = motorEncL.read() / 240.0;
+    float rightWheelRevs = motorEncR.read() / 240.0;
     
     leftWheelDelta = leftWheelRevs - leftWheelRevsPrevious;
     rightWheelDelta = rightWheelRevs - rightWheelRevsPrevious;
@@ -228,12 +234,13 @@ void KalmanFilterUpdate()
 	/*************************************************************************************
 	Prediction Step
 	*************************************************************************************/
-	float motion_left = leftWheelDelta*2*3.14*6/2*0.0254;
-	float motion_right = rightWheelDelta*2*3.14*6/2*0.0254;
+  
+	float motion_left = leftWheelDelta*2.0*3.14*6.0/2.0*0.0254;
+	float motion_right = rightWheelDelta*2.0*3.14*6.0/2.0*0.0254;
 
 	float relative_displacement = (motion_right - motion_left)/track_width;
 	float squareRootTerm = pow(track_width,2) - pow((motion_right - motion_left),2);
-	float B[3][2] = {{cos(last_pose[2])/2, cos(last_pose[2])/2}, {sin(last_pose[2])/2, sin(last_pose[2])/2}, {-1/sq(squareRootTerm), 1/sq(squareRootTerm)}};
+	float B[3][2] = {{cos(last_pose[2])/2, cos(last_pose[2])/2}, {sin(last_pose[2])/2, sin(last_pose[2])/2}, {-1/sqrt(squareRootTerm), 1/sqrt(squareRootTerm)}};
   
 	float pose_pre[3] = {last_pose[0] + (motion_left + motion_right)*cos(last_pose[2])/2, last_pose[1] + (motion_left + motion_right)*sin(last_pose[2])/2, last_pose[2] + asin(relative_displacement)};
 
@@ -254,18 +261,13 @@ void KalmanFilterUpdate()
 	/*************************************************************************************
 	Correction Step
 	*************************************************************************************/
-	float distance_left = distances[LEFT_SIDE]/100;
-	float distance_right = distances[RIGHT_SIDE]/100;
+	float distance_left = distances[LEFT_SIDE]/100.0;
+	float distance_right = distances[RIGHT_SIDE]/100.0;
 	float yaw_angle = yaw;
-	yaw_angle = fmod(yaw_angle, 360);
-	if(yaw_angle >=180)
-		yaw_angle = (yaw_angle - 360)*3.14/180;
-	else
-		yaw_angle = (yaw_angle)*3.14/180;	
   
 	float Z[3] = {pose_pre[1] + distance_left*cos(pose_pre[2]) + track_width/2*cos(pose_pre[2]), pose_pre[1] - distance_right*cos(pose_pre[2]) - track_width/2*cos(pose_pre[2]), pose_pre[2] - yaw_angle};
 	float Z_obs[3] = {0.8, 0, 0};
-
+  
 	float C[3][3] = {{0, 1, -(distance_left + track_width/2)*sin(pose_pre[2])}, {0, 1, (distance_right + track_width/2)*sin(pose_pre[2])}, {0, 0, 1}};
 	float D[3][5] = {{cos(pose_pre[2]), 0, 0, 0, 0,}, {0, -cos(pose_pre[2]), 0, 0, 0}, {0, 0, 0, 0, -1}};
 //  Matrix.Print((float*)C, 3, 3, "C");
@@ -340,6 +342,8 @@ void KalmanFilterConstant(int a, int b, int c, float* C, float* D, float* pose_c
 	Matrix.Multiply((float*)C, (float*)pose_cov_pre, a, b, b, (float*)C_multiply_P_cov_pre); // a X b
 	Matrix.Multiply((float*)C_multiply_P_cov_pre, (float*)C_transpose, a, b, a, (float*)firstTerm); // a X a
 //  Matrix.Print((float*)firstTerm, 3, 3, "firstTerm");
+
+  
   
 	float D_multiply_measure_cov[a][c];
 	float secondTerm[a][a];
