@@ -58,11 +58,18 @@ float track_width = 10.25*0.0254;
 /*************************************************************************************
 ==== Initialization ====
 *************************************************************************************/
-float control_cov[2][2] = {{sig_enc, 0}, {0, sig_enc}};
-float measure_cov[5][5] = {{sig_ultrasonic, 0, 0, 0, 0}, {0, sig_ultrasonic, 0, 0, 0}, {0, 0, sig_ultrasonic, 0, 0}, {0, 0, 0, sig_ultrasonic, 0}, {0, 0, 0, 0, sig_imu}};
+float control_cov[2][2] = {{sig_enc, 0}, 
+                           {0, sig_enc}};
+float measure_cov[5][5] = {{sig_ultrasonic, 0, 0, 0, 0}, 
+                           {0, sig_ultrasonic, 0, 0, 0}, 
+                           {0, 0, sig_ultrasonic, 0, 0}, 
+                           {0, 0, 0, sig_ultrasonic, 0}, 
+                           {0, 0, 0, 0, sig_imu}};
 
 float last_pose[3] = {0 , 0.4 , 0};
-float last_pose_cov[3][3] = {{pow(0.0, 2), 0, 0}, {0, pow(0.02,2), 0}, {0, 0, pow(0.1,2)}};
+float last_pose_cov[3][3] = {{pow(0.0, 2), 0, 0}, 
+                             {0, pow(0.02,2), 0}, 
+                             {0, 0, pow(0.1,2)}};
 
 
 PID pidHall(&currentY, &turnAmount, &desiredY, 
@@ -142,20 +149,6 @@ void loop()
     hallFeedback();
 
     if(debug) {
-//        Serial.print(" Yaw: ");
-//        Serial.print(yaw); //Heading, deg
-//        Serial.print(" Des_yaw: ");
-//        Serial.print(desiredYaw); //deg
-//        Serial.print(" L_Des_Vel: ");
-//        Serial.print(desiredVelL);
-//        Serial.print(" R_Des_Vel: ");
-//        Serial.print(desiredVelR);
-//        Serial.print(" Gait:");
-//        Serial.print(currGait);    
-//        Serial.print(" Left_sensor:");
-//        Serial.print(distances[LEFT_SIDE]);
-//        Serial.print(" Right_sensor:");
-//        Serial.print(distances[RIGHT_SIDE]);
           Matrix.Print(last_pose, 1, 3, "last_pose");
           Serial.print(" IMU_Yaw: ");
           Serial.print(yaw);
@@ -235,14 +228,18 @@ void KalmanFilterUpdate()
 	Prediction Step
 	*************************************************************************************/
   
-	float motion_left = leftWheelDelta*2.0*3.14*6.0/2.0*0.0254;
-	float motion_right = rightWheelDelta*2.0*3.14*6.0/2.0*0.0254;
+	float motion_left = leftWheelDelta * 2.0 * 3.14 * 6.0 / 2.0 * 0.0254;
+	float motion_right = rightWheelDelta * 2.0 * 3.14 * 6.0 / 2.0 * 0.0254;
 
-	float relative_displacement = (motion_right - motion_left)/track_width;
+	float relative_displacement = (motion_right - motion_left) / track_width;
 	float squareRootTerm = pow(track_width,2) - pow((motion_right - motion_left),2);
-	float B[3][2] = {{cos(last_pose[2])/2, cos(last_pose[2])/2}, {sin(last_pose[2])/2, sin(last_pose[2])/2}, {-1/sqrt(squareRootTerm), 1/sqrt(squareRootTerm)}};
+	float B[3][2] = {{cos(last_pose[2]) / 2, cos(last_pose[2]) / 2}, 
+                     {sin(last_pose[2]) / 2, sin(last_pose[2]) / 2}, 
+                     {-1 / sqrt(squareRootTerm), 1 / sqrt(squareRootTerm)}};
   
-	float pose_pre[3] = {last_pose[0] + (motion_left + motion_right)*cos(last_pose[2])/2, last_pose[1] + (motion_left + motion_right)*sin(last_pose[2])/2, last_pose[2] + asin(relative_displacement)};
+	float pose_pre[3] = {last_pose[0] + (motion_left + motion_right) * cos(last_pose[2]) / 2, 
+                         last_pose[1] + (motion_left + motion_right) * sin(last_pose[2]) / 2, 
+                         last_pose[2] + asin(relative_displacement)};
 
 	float temp[3][2];
 
@@ -261,15 +258,21 @@ void KalmanFilterUpdate()
 	/*************************************************************************************
 	Correction Step
 	*************************************************************************************/
-	float distance_left = distances[LEFT_SIDE]/100.0;
-	float distance_right = distances[RIGHT_SIDE]/100.0;
+	float distance_left = distances[LEFT_SIDE] / 100.0;
+	float distance_right = distances[RIGHT_SIDE] / 100.0;
 	float yaw_angle = yaw;
   
-	float Z[3] = {pose_pre[1] + distance_left*cos(pose_pre[2]) + track_width/2*cos(pose_pre[2]), pose_pre[1] - distance_right*cos(pose_pre[2]) - track_width/2*cos(pose_pre[2]), pose_pre[2] - yaw_angle};
+	float Z[3] = {pose_pre[1] + distance_left*cos(pose_pre[2]) + track_width / 2 * cos(pose_pre[2]), 
+                  pose_pre[1] - distance_right*cos(pose_pre[2]) - track_width / 2 * cos(pose_pre[2]), 
+                  pose_pre[2] - yaw_angle};
 	float Z_obs[3] = {0.8, 0, 0};
   
-	float C[3][3] = {{0, 1, -(distance_left + track_width/2)*sin(pose_pre[2])}, {0, 1, (distance_right + track_width/2)*sin(pose_pre[2])}, {0, 0, 1}};
-	float D[3][5] = {{cos(pose_pre[2]), 0, 0, 0, 0,}, {0, -cos(pose_pre[2]), 0, 0, 0}, {0, 0, 0, 0, -1}};
+	float C[3][3] = {{0, 1, -(distance_left + track_width / 2) * sin(pose_pre[2])}, 
+                     {0, 1, (distance_right + track_width / 2) * sin(pose_pre[2])}, 
+                     {0, 0, 1}};
+	float D[3][5] = {{cos(pose_pre[2]), 0, 0, 0, 0,}, 
+                     {0, -cos(pose_pre[2]), 0, 0, 0}, 
+                     {0, 0, 0, 0, -1}};
 //  Matrix.Print((float*)C, 3, 3, "C");
 	Matrix.Multiply((float*)temp, (float*)B_transpose, 3, 2, 3, (float*)pose_cov_from_control);
 
@@ -343,7 +346,6 @@ void KalmanFilterConstant(int a, int b, int c, float* C, float* D, float* pose_c
 	Matrix.Multiply((float*)C_multiply_P_cov_pre, (float*)C_transpose, a, b, a, (float*)firstTerm); // a X a
 //  Matrix.Print((float*)firstTerm, 3, 3, "firstTerm");
 
-  
   
 	float D_multiply_measure_cov[a][c];
 	float secondTerm[a][a];
