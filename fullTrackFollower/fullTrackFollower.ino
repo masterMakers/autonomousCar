@@ -20,14 +20,14 @@ int currDistSensor = 0;
 
 //Hall Following
 const double wheelBase = 0.25; // m
-double nominalForwardSpeed = 0.5;
+double nominalForwardSpeed = 1.0;
 double yaw = 0.0;
 double pathHeading;
 double desiredY = 0.5; //center of hallway (m)
 double turnAmount;
 double currentY;
 double desiredYaw = 0.0;
-PID pidHall(&currentY, &turnAmount, &desiredY, 1.5, 0.0, 0.1, DIRECT);
+PID pidHall(&currentY, &turnAmount, &desiredY, 0.5, 0.0, 0.0, DIRECT);
         // args: input, output, setpoint, Kp, Ki, Kd, mode
         
 //Ramp Detection
@@ -41,7 +41,7 @@ double reflValueSmooth = 0;
 double rampThreshold;
 
 //Yaw Correction
-PID pidYaw(&yaw, &turnAmount, &desiredYaw, 0.1, 0.05, 0.01, DIRECT); 
+PID pidYaw(&yaw, &turnAmount, &desiredYaw, 0.01, 0.0, 0.001, DIRECT); 
         // args: input, output, setpoint, Kp, Ki, Kd, mode
         
 float maxSpeed=10.0;
@@ -55,6 +55,8 @@ bool jumpOver=false;
 bool turnDone = false;
 double turnAmountBuffer[5];
 unsigned long turnCounter = 0;
+//double LeftDistance[3];
+//double filteredRightDistance[3];
 
 //kalman filter
 float leftWheelDelta;
@@ -149,7 +151,7 @@ void setup()
     pidR.SetSampleTime(25);
     pidR.SetWheelParam(K);
     pidR.SetMode(AUTOMATIC);
-    pidHall.SetOutputLimits(-3, 3);
+    pidHall.SetOutputLimits(-1, 1);
     pidHall.SetSampleTime(50);  // outer PID loop set to run ~4x slower than inner loop (5 hz)
     pidHall.SetMode(AUTOMATIC);
     pidYaw.SetOutputLimits(-5, 5);
@@ -184,8 +186,12 @@ void loop()
         Serial.print(turnAmount);
         Serial.print(" Y: ");
         Serial.print(currentY);
-//        Serial.print(" Gait:");
-//        Serial.print(currGait);    
+        Serial.print(" Kalman Yaw: ");
+        Serial.print(last_pose[2]);
+        Serial.print(yaw);
+        Serial.print(" Yaw: ");
+        Serial.print(" Gait:");
+        Serial.print(currGait);    
 //        Serial.print(" Left_sensor:");
 //        Serial.print(distances[LEFT_SIDE]);
 //        Serial.print(" Right_sensor:");
@@ -219,7 +225,7 @@ void updateSensorReadings()
         distances[currDistSensor] = 150.0;
     }
     currDistSensor = (currDistSensor + 1) % numDistSensors;
-    
+        
     //update IMU information
     IMU.updateEuler();     
     IMU.updateCalibStatus(); // Update the Calibration Status
@@ -271,18 +277,19 @@ void gaitControl()
 //        {
 //            currGait = JUMP;
 //        }
-//        if(distances[RIGHT_SIDE] > 120.0) {
-//            currGait = TURN_RIGHT;
-//            desiredYaw = yaw-90;
-//            turnDone = 0;
-//            turnCounter = 0;
-//        }
-//        if(distances[LEFT_SIDE] > 120.0) {
-//            currGait = TURN_LEFT;
-//            desiredYaw = yaw+90;
-//            turnDone = 0;
-//            turnCounter = 0;
-//        }
+        if((distances[RIGHT_SIDE] > 120.0) && (last_pose[0]>1.5)) {
+            
+            currGait = TURN_RIGHT;
+            desiredYaw = yaw-90;
+            turnDone = 0;
+            turnCounter = 0;
+        }
+        if((distances[LEFT_SIDE] > 120.0) && (last_pose[0]>1.5)) {
+            currGait = TURN_LEFT;
+            desiredYaw = yaw+90;
+            turnDone = 0;
+            turnCounter = 0;
+        }
         break;
     case TURN_LEFT:
         turn();
@@ -625,12 +632,9 @@ void turn()
     desiredVelL = -turnAmount;
     desiredVelR = turnAmount;
     turnAmountBuffer[turnCounter%5] =  turnAmount;
-    if (turnCounter>5)
+    if (abs(yaw-desiredYaw)<5.0)
     {
-      if (abs(turnAmountBuffer[0]-turnAmountBuffer[4])<0.05)
-      {
         turnDone = 1; 
-      }
     }
     turnCounter++;
 }
