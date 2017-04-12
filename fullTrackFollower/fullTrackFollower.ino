@@ -164,9 +164,7 @@ void setup()
 void(* resetFunc)(void) = 0;
 
 void loop() 
-{
-    wheelSpeedFeedback();
-    
+{  
     updateSensorReadings();
     
     KalmanFilterUpdate();
@@ -188,10 +186,14 @@ void loop()
         Serial.print(currentY);
         Serial.print(" Kalman Yaw: ");
         Serial.print(last_pose[2]);
-        Serial.print(yaw);
         Serial.print(" Yaw: ");
+        Serial.print(yaw);
+        Serial.print(" X: ");
+        Serial.print(last_pose[0]);
         Serial.print(" Gait:");
-        Serial.print(currGait);    
+        Serial.print(currGait); 
+        Serial.print(" Desired Yaw: ");
+        Serial.print(desiredYaw);  
 //        Serial.print(" Left_sensor:");
 //        Serial.print(distances[LEFT_SIDE]);
 //        Serial.print(" Right_sensor:");
@@ -271,6 +273,7 @@ void gaitControl()
     // finite state automaton
     switch(currGait) {
     case STRAIGHT:
+        wheelSpeedFeedback();
         hallFollowing();
         
 //        if(rampDetected==1)
@@ -280,32 +283,33 @@ void gaitControl()
         if((distances[RIGHT_SIDE] > 120.0) && (last_pose[0]>1.5)) {
             
             currGait = TURN_RIGHT;
-            desiredYaw = yaw-90;
+            desiredYaw = yaw-M_PI/2;
             turnDone = 0;
             turnCounter = 0;
         }
         if((distances[LEFT_SIDE] > 120.0) && (last_pose[0]>1.5)) {
             currGait = TURN_LEFT;
-            desiredYaw = yaw+90;
+            desiredYaw = yaw+M_PI/2;
             turnDone = 0;
             turnCounter = 0;
         }
         break;
     case TURN_LEFT:
-        turn();
+        turnLeft();
         if (turnDone == 1)
         {
           resetFunc(); 
         }
         break;
     case TURN_RIGHT:
-        turn();
+        turnRight();
         if (turnDone == 1)
         {
           resetFunc(); 
         }
         break;
     case JUMP:
+        wheelSpeedFeedback();
         Jump();
         if (jumpOver==1)
         {
@@ -626,11 +630,23 @@ void fullSpeedAhead()
     desiredVelR = maxSpeed;
 }
 
-void turn()
+void turnRight()
+{
+    //pidYaw.Compute();
+    motorDriver.setM1Speed(-30); //right, motor command [-400 400]
+    motorDriver.setM2Speed(30); //left
+    //turnAmountBuffer[turnCounter%5] =  turnAmount;
+    if (abs(yaw-desiredYaw)<20.0) {
+        turnDone = 1; 
+    }
+    //turnCounter++;
+}
+
+void turnLeft()
 {
     pidYaw.Compute();
-    desiredVelL = -turnAmount;
     desiredVelR = turnAmount;
+    motorDriver.setM2Brake(400);
     turnAmountBuffer[turnCounter%5] =  turnAmount;
     if (abs(yaw-desiredYaw)<5.0)
     {
