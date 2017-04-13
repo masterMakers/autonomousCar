@@ -1,3 +1,4 @@
+#include <MatrixMath.h>
 #include <KalmanFilter.h>
 #include <Encoder.h>
 #include <Wire.h>
@@ -19,7 +20,7 @@ const float M = 1 / 29.0 / 2.0; // distance calibration
 int currDistSensor = 0;
 
 //Hall Following
-float nominalForwardSpeed = 1.0;
+float nominalForwardSpeed = 0.5;
 double yaw = 0.0;
 double pathHeading;
 double desiredY = 0.5; //center of hallway (m)
@@ -28,7 +29,7 @@ PID pidHall(&currentY, &turnAmount, &desiredY, 0.5, 0.0, 0.0, DIRECT);
         // args: input, output, setpoint, Kp, Ki, Kd, mode
 
 //Yaw Correction
-PID pidYaw(&yaw, &turnAmount, &desiredYaw, 0.01, 0.0, 0.001, DIRECT); 
+PID pidYaw(&yaw, &turnAmount, &desiredYaw, 65.0, 8.0, 3.0, DIRECT); 
         // args: input, output, setpoint, Kp, Ki, Kd, mode
 
 //Ramp Detection
@@ -37,8 +38,7 @@ int reflCounter = 0;
 const int reflSize = 3;
 float reflValues[reflSize];
 float rampThreshold;
-        
-float maxSpeed = 10.0;
+float maxSpeed = 5.0; //m/s
 float zAccel;
 
 //kalman filter
@@ -73,6 +73,7 @@ gait currGait = STRAIGHT;
 
 enum jump {
   PREPARE,
+  GO,
   JUMPING,
   IN_FLIGHT,
   POST_JUMP,
@@ -108,7 +109,7 @@ void setup()
     }
     rampThreshold = analogRead(reflSensorPin) * 1.1;
     
-    // initialize heading
+    //initialize heading
     yaw = ekf.degToRad( IMU.readEulerHeading() );
     pathHeading = yaw;
 
@@ -126,7 +127,7 @@ void setup()
     pidHall.SetOutputLimits(-1, 1);
     pidHall.SetSampleTime(50);  // outer PID loop set to run ~2x slower than inner loop (20 hz)
     pidHall.SetMode(AUTOMATIC);
-    pidYaw.SetOutputLimits(-5, 5);
+    pidYaw.SetOutputLimits(-350, 350);
     pidYaw.SetSampleTime(100);  // outer PID loop set to run ~4x slower than inner loop (10 hz)
     pidYaw.SetMode(AUTOMATIC);
 
@@ -147,24 +148,30 @@ void setup()
 
 void loop() 
 {  
-    updateSensorReadings();
+    //updateSensorReadings();
     
-    kalmanUpdate();
+    //kalmanUpdate();
    
-    gaitControl();
+    //gaitControl();
 
     if(debug) {
-      Serial.print(" L_Des_Vel: ");
-      Serial.print(desiredVelL);
-      Serial.print(" R_Des_Vel: ");
-      Serial.print(desiredVelR);
-      Serial.print(" Turn Amt: ");
-      Serial.print(turnAmount);
-      Serial.print(" Y: ");
-      Serial.print(currentY);
-      Serial.print("IMU Yaw: ");
-      Serial.print(yaw); //Heading, deg
-      ekf.printPose();
+//      Serial.print(" L_Des_Vel: ");
+//      Serial.print(desiredVelL);
+//      Serial.print(" R_Des_Vel: ");
+//      Serial.print(desiredVelR);
+//      Serial.print(" Turn Amt: ");
+//      Serial.print(turnAmount);
+//      Serial.print(" X: ");
+//      Serial.print(pose[0]);
+//      Serial.print(" Y: ");
+//      Serial.print(currentY);
+//      Serial.print(" IMU Yaw: ");
+//      Serial.print(yaw); //Heading, deg
+//      Serial.print(" Desired Yaw: ");
+//      Serial.print(desiredYaw);
+//      Serial.print(" Current Gait: ");
+//      Serial.print(currGait);
+      //ekf.printPose();
       Serial.print(" Left_sensor:");
       Serial.print(distances[LEFT_SIDE]);
       Serial.print(" Right_sensor:");
@@ -258,9 +265,15 @@ void gaitControl()
         if((distances[RIGHT_SIDE] > 120.0) && (pose[0] > 1.5)) {
             currGait = TURN_RIGHT;
             desiredYaw = yaw - (M_PI / 2.0);
+            motorDriver.setM1Brake(400);
+            motorDriver.setM2Brake(400);
+            delay(1000);
         } else if((distances[LEFT_SIDE] > 120.0) && (pose[0] > 1.5)) {
             currGait = TURN_LEFT;
             desiredYaw = yaw + (M_PI / 2.0);
+            motorDriver.setM1Brake(400);
+            motorDriver.setM2Brake(400);
+            delay(1000);
         }
         break;
     case TURN_LEFT:
@@ -311,11 +324,12 @@ bool doJump()
 {     
     switch(jumpState) {
     case PREPARE:
-        correctYaw();
-        // TODO fix
+        if (correctYaw()) {
+            jumpState = GO;
+        }
+    case GO:
         desiredVelL = maxSpeed;
         desiredVelR = maxSpeed;
-
         if (zAccel > 13) {
             jumpState = JUMPING;
         }
@@ -343,19 +357,21 @@ bool doJump()
     return false;
 }
 
-void correctYaw()
+bool correctYaw()
 {
     pidYaw.Compute();
-    desiredVelL = -turnAmount;
-    desiredVelR = turnAmount;
+    desiredVelL = turnAmount;
+    desiredVelR = -turnAmount;
+    //TODO: figure out when turn is over
+    return false;
 }
 
 bool turnRight()
 {
-    //pidYaw.Compute();
-    motorDriver.setM1Speed(-30); //right, motor command [-400 400]
-    motorDriver.setM2Speed(30); //left
-    if (fabs(yaw - desiredYaw) < 20.0) {
+    pidYaw.Compute();
+    motorDriver.setM1Speed(turnAmount); //right, motor command [-400 400]
+    motorDriver.setM2Speed(-turnAmount); //left
+    if (fabs(yaw - desiredYaw) < 5.0*(M_PI/180)) {
         return true;
     }
     return false;
@@ -364,9 +380,9 @@ bool turnRight()
 bool turnLeft()
 {
     pidYaw.Compute();
-    desiredVelR = turnAmount;
-    motorDriver.setM2Brake(400);
-    if (fabs(yaw - desiredYaw) < 20.0) {
+    motorDriver.setM1Speed(turnAmount); //right, motor command [-400 400]
+    motorDriver.setM2Speed(-turnAmount); //left
+    if (fabs(yaw - desiredYaw) < 5.0*(M_PI/180)) {
         return true;
     }
     return false;
@@ -377,18 +393,28 @@ void reset()
     // reset pose and pose_cov
     ekf.reset();
 
+    //reset relfectance array
     for(int i = 0; i < reflSize; i++) {
       reflValues[i] = 0.0;
     }
+    
+    //reset motor commands    
+    motorDriver.setM1Speed(0); //right
+    motorDriver.setM2Speed(0); //left
+    
+    //reset gait
+    currGait = STRAIGHT;
 
-    // reset encoders?
-    // re-initialize variables
-
-    // reset IMU
+    //reset IMU
     IMU.resetSensor(0x28); // default address
-    delay(10);
+    //IMU.resetInterrupt();
+    IMU.initSensor(); // I2C Address can be changed here
+    IMU.setOperationMode(OPERATION_MODE_NDOF);
+    IMU.setUpdateMode(MANUAL);  //The default is AUTO. MANUAL requires calling
+                                //update functions prior to read
+    delay(500);
     yaw = ekf.degToRad( IMU.readEulerHeading() );
-    pathHeading = yaw;
+    pathHeading = yaw;  
 }
 
 //make sure motors connected
