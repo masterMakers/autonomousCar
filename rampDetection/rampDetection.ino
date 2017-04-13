@@ -24,7 +24,7 @@ void setup()
   }
   
   //calibrate ramp detection threshold
-   rampThreshold = analogRead(reflSensorPin) * 1.1;
+   rampThreshold = analogRead(reflSensorPin) * 3;
    Serial.print(rampThreshold);
 }
 
@@ -57,7 +57,7 @@ void loop()
       rampDetected = 0; 
     }
     
-    //Serial.print(reflValueSmooth); 
+    Serial.print(reflValueSmooth); 
     Serial.println();
    
     counter++;

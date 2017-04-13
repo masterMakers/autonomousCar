@@ -1,11 +1,9 @@
 // TODO
 // try to increase initial covariance of the heading, improve wallfollowing when initial heading is unknown
-// turning should be better on wooden surface
 // better cut off on turns, buffer yaw or something
-// how to quickly stop when turn is detected
-// test brake on ground, test -400 as brake
 // test pid around yaw for pre jump centering
 // try ramp jump
+// average together side sensors for turn detection
 // 
 
 #include <MatrixMath.h>
@@ -22,9 +20,9 @@ Encoder motorEncR(18, 19);
 NAxisMotion IMU;
 
 //distance sensors
-const int LEFT_SIDE = 0, RIGHT_SIDE = 1, FRONT = 2, BACK = 3, numDistSensors = 4;
-const int trigPins[numDistSensors] = {24,26,28,32};  // TODO: fix back pins
-const int echoPins[numDistSensors] = {25,27,29,33};
+const int LEFT_SIDE = 0, RIGHT_SIDE = 1, FRONT = 2, BACK = 3, numDistSensors = 2;
+const int trigPins[numDistSensors] = {24,26};  // {24,26,28,32}; 
+const int echoPins[numDistSensors] = {25,27}; // {25,27,29,33};
 float distances[numDistSensors];
 const float M = 1 / 29.0 / 2.0; // distance calibration
 int currDistSensor = 0;
@@ -33,13 +31,13 @@ int currDistSensor = 0;
 float nominalForwardSpeed = 0.5;
 double yaw = 0.0;
 double pathHeading;
-double desiredY = 0.6; //center of hallway (m)
+double desiredY = 0.5; //center of hallway (m)
 double currentY, turnAmount, desiredYaw = 0.0;
-PID pidHall(&currentY, &turnAmount, &desiredY, 0.5, 0.0, 0.0, DIRECT); // 0.5, 0.0, 0.0
+PID pidHall(&currentY, &turnAmount, &desiredY, 0.5, 0.0, 0.75, DIRECT); // 0.5, 0.0, 0.0
         // args: input, output, setpoint, Kp, Ki, Kd, mode
 
 //Yaw Correction
-PID pidYaw(&yaw, &turnAmount, &desiredYaw, 65.0, 8.0, 3.0, DIRECT); // 65.0, 8.0, 3.0
+PID pidYaw(&yaw, &turnAmount, &desiredYaw, 20.0, 16.0, 40.0, DIRECT); // 65.0, 8.0, 3.0
         // args: input, output, setpoint, Kp, Ki, Kd, mode
 
 //Ramp Detection
@@ -51,15 +49,15 @@ float rampThreshold;
 float maxSpeed = 5.0; //m/s
 float zAccel;
 
-//kalman filter
+//kalman filter 
 float leftWheelRevsPrevious;
 float rightWheelRevsPrevious;
 bool active_sensors[5] = {false, false, false, false, false};
 
-float pose[3] = {0 , 0.6 , 0};
-float pose_cov[3][3] = {{sq(0.0), 0, 0}, 
-                        {0, sq(0.02), 0}, 
-                        {0, 0, sq(0.1)}};
+float pose[3] = {0 , 0.5 , 0};
+float pose_cov[3][3] = {{sq(0.02), 0, 0}, 
+                        {0, sq(0.02), 0}, //
+                        {0, 0, sq(0.05)}};//0.1
 float measure[5];  // initialized to zero
 float control_input[2];
 KalmanFilter ekf(pose, pose_cov, measure, control_input);
@@ -118,7 +116,7 @@ void setup()
     for(int i = 0; i < reflSize; i++) {
       reflValues[i] = 0.0;
     }
-    rampThreshold = analogRead(reflSensorPin) * 1.1;
+    rampThreshold = analogRead(reflSensorPin) * 3.0;
     
     //initialize heading
     yaw = ekf.degToRad( IMU.readEulerHeading() );
@@ -143,8 +141,8 @@ void setup()
     pidYaw.SetMode(AUTOMATIC);
 
     // sigma values
-    float sig_ultrasonic = 0.08;
-    float sig_imu = 2.5 * M_PI / 180.0;
+    float sig_ultrasonic = 0.01;
+    float sig_imu = 20 * M_PI / 180.0; //2.5
     float sig_enc = 0.005;
     
     // dimension of vehicle
@@ -176,10 +174,12 @@ void loop()
       Serial.print(pose[0]);
       Serial.print(" Y: ");
       Serial.print(currentY);
+      Serial.print(" Yaw: ");
+      Serial.print(pose[2]);
       Serial.print(" IMU Yaw: ");
       Serial.print(yaw); //Heading, deg
-      Serial.print(" Desired Yaw: ");
-      Serial.print(desiredYaw);
+//      Serial.print(" Desired Yaw: ");
+//      Serial.print(desiredYaw);
       Serial.print(" Current Gait: ");
       Serial.print(currGait);
 //      ekf.printPose();
@@ -270,18 +270,20 @@ void gaitControl()
         hallFollowing();
         wheelSpeedFeedback();
         
-//        if(rampDetection()) {
-//            currGait = JUMP;
-//        }
+        if(rampDetection()) {
+            currGait = JUMP;
+        }
         if((distances[RIGHT_SIDE] > 120.0) && (pose[0] > 1.5)) {
             currGait = TURN_RIGHT;
-            desiredYaw = yaw - (M_PI / 2.0);
-            motorDriver.setBrakes(400,400);
+            desiredYaw = pose[2] - (M_PI / 2.0); // yaw - (M_PI / 2.0)
+//            motorDriver.setBrakes(400,400);
+            brake();
             delay(1000);
         } else if((distances[LEFT_SIDE] > 120.0) && (pose[0] > 1.5)) {
             currGait = TURN_LEFT;
-            desiredYaw = yaw + (M_PI / 2.0);
-            motorDriver.setBrakes(400,400);
+            desiredYaw = pose[2] + (M_PI / 2.0); // yaw - (M_PI / 2.0)
+//            motorDriver.setBrakes(400,400);
+            brake();
             delay(1000);
         }
         break;
@@ -375,10 +377,21 @@ bool correctYaw()
     return false;
 }
 
+void brake()
+{
+    motorDriver.setM1Speed(-100);
+    motorDriver.setM2Speed(-100);
+    Serial.println(" Brake ");
+    delay(150);
+    motorDriver.setM1Speed(0);
+    motorDriver.setM2Speed(0);
+    stopIfFault();
+}
+
 bool turnRight()
 {
     pidYaw.Compute();
-    motorDriver.setM1Speed(0); //right, motor command [-400 400]
+    motorDriver.setM1Speed(turnAmount); //right, motor command [-400 400]
     motorDriver.setM2Speed(-turnAmount); //left
     if (fabs(yaw - desiredYaw) < 5.0*(M_PI/180)) {
         return true;
@@ -390,7 +403,7 @@ bool turnLeft()
 {
     pidYaw.Compute();
     motorDriver.setM1Speed(turnAmount); //right, motor command [-400 400]
-    motorDriver.setM2Speed(0); //left
+    motorDriver.setM2Speed(-turnAmount); //left
     if (fabs(yaw - desiredYaw) < 5.0*(M_PI/180)) {
         return true;
     }
@@ -421,9 +434,45 @@ void reset()
     IMU.setOperationMode(OPERATION_MODE_NDOF);
     IMU.setUpdateMode(MANUAL);  //The default is AUTO. MANUAL requires calling
                                 //update functions prior to read
-    delay(500);
-    yaw = ekf.degToRad( IMU.readEulerHeading() );
-    pathHeading = yaw;
+    unsigned long tic = millis();
+    unsigned long toc = tic;
+//    while (abs(toc - tic) <1000)
+//    {
+//      pidL.ComputeVelocity(motorEncL.read());
+//      pidR.ComputeVelocity(motorEncR.read());
+//      stopIfFault();
+//      updateSensorReadings();
+//      kalmanUpdate();
+//      toc = millis();
+//      if(debug) 
+//      {
+//        Serial.print(" L_Des_Vel: ");
+//        Serial.print(desiredVelL);
+//        Serial.print(" R_Des_Vel: ");
+//        Serial.print(desiredVelR);
+//        Serial.print(" Turn Amt: ");
+//        Serial.print(turnAmount);
+//        Serial.print(" X: ");
+//        Serial.print(pose[0]);
+//        Serial.print(" Y: ");
+//        Serial.print(currentY);
+//        Serial.print(" IMU Yaw: ");
+//        Serial.print(yaw); //Heading, deg
+//        Serial.print(" Desired Yaw: ");
+//        Serial.print(desiredYaw);
+//        Serial.print(" Current Gait: ");
+//        Serial.print(currGait);
+//  //      ekf.printPose();
+//        Serial.print(" Left_sensor:");
+//        Serial.print(distances[LEFT_SIDE]);
+//        Serial.print(" Right_sensor:");
+//        Serial.print(distances[RIGHT_SIDE]);  
+//        Serial.println();
+//    }
+//  }
+  delay(500);
+  yaw = ekf.degToRad( IMU.readEulerHeading() );
+  pathHeading = yaw;
 }
 
 //make sure motors connected
