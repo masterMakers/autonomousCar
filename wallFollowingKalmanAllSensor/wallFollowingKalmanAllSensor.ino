@@ -263,7 +263,8 @@ void KalmanFilterUpdate()
   float squareRootTerm = pow(track_width,2) - pow((motion_right - motion_left),2);
   float B[3][2] = {{cos(last_pose[2])/2, cos(last_pose[2])/2}, {sin(last_pose[2])/2, sin(last_pose[2])/2}, {-1/sqrt(squareRootTerm), 1/sqrt(squareRootTerm)}};
 
-  float pose_pre[3] = {last_pose[0] + (motion_left + motion_right)*cos(last_pose[2])/2, last_pose[1] + (motion_left + motion_right)*sin(last_pose[2])/2, last_pose[2] + asin(relative_displacement)};
+  float pose_pre[3] = {last_pose[0] + (motion_left + motion_right)*cos(last_pose[2])/2, last_pose[1] + (motion_left + motion_right)*sin(last_pose[2])/2, 
+    last_pose[2] + asin(relative_displacement)};
 
   float temp[3][2];
 
