@@ -12,7 +12,7 @@
 #include <NAxisMotion.h>
 #include <DualVNH5019MotorShield.h>
 
-#define FORWARDS true
+#define FORWARDS false
 
 #if FORWARDS
 DualVNH5019MotorShield motorDriver(11, 5, 13, A0, 9, 7, 8, 12, A1, 10);
@@ -59,6 +59,7 @@ float reflValues[reflSize];
 float rampThreshold;
 float pitch = 0.0;
 float startX = 0.0;
+unsigned long startTime = 0.0;
 
 //kalman filter 
 float leftWheelRevsPrevious;
@@ -181,12 +182,14 @@ void loop()
       ekf.printPose();
       Serial.print(" IMU Yaw: ");
       Serial.print(yaw); //Heading, deg
+      Serial.print(" IMU Pitch: ");
+      Serial.print(pitch); //Heading, deg
 //      Serial.print(" Desired Yaw: ");
 //      Serial.print(desiredYaw);
       Serial.print(" Gait: ");
       Serial.print(currGait);
-//      Serial.print(" Jump: ");
-//      Serial.print(jumpState);
+      Serial.print(" Jump: ");
+      Serial.print(jumpState);
       Serial.print(" Left_sensor:");
       Serial.print(distances[LEFT_SIDE]);
       Serial.print(" Right_sensor:");
@@ -277,24 +280,30 @@ void gaitControl()
             currGait = JUMP;
             jumpState = GET_TO_JUMP;
             startX = pose[0];
+            startTime = millis();
         }
         else if((distances[RIGHT_SIDE] > 120.0) && (pose[0] > 1.5)) {
-            desiredYaw = pose[2] - (M_PI / 2.0); // yaw - (M_PI / 2.0) // TODO yaw or pose[2] ??
-            brake(150);
+            desiredYaw = yaw - (M_PI / 2.0); // yaw - (M_PI / 2.0) // TODO yaw or pose[2] ??
+            brake(50);
             delay(500);
             currGait = TURN;
+            turnAmount = 0;
         } 
         else if((distances[LEFT_SIDE] > 120.0) && (pose[0] > 1.5)) { // TODO average with distancesLast
-            desiredYaw = pose[2] + (M_PI / 2.0); // yaw + (M_PI / 2.0)
-            brake(150);
+            desiredYaw = yaw + (M_PI / 2.0); // yaw + (M_PI / 2.0)
+            brake(50);
             delay(500);
             currGait = TURN;
+            turnAmount = 0;
         }
         break;
     case TURN:
         if (turn()) {
             reset();
             currGait = STRAIGHT;
+            desiredVelR = nominalForwardSpeed;
+            desiredVelL = nominalForwardSpeed;
+            turnAmount = 0;
         }
         break;
     case JUMP:
@@ -336,7 +345,8 @@ bool jump()
     case GET_TO_JUMP:
         hallFollowing();
         wheelSpeedFeedback();
-        if (abs(pose[0] - startX) > 1.0) {
+        // if (abs(pose[0] - startX) > 1.0) {
+        if ((millis() - startTime) > 500) {
           desiredVelL = nominalForwardSpeed;
           desiredVelR = nominalForwardSpeed;
           jumpState = GO;
@@ -347,11 +357,11 @@ bool jump()
 //            jumpState = GO;
 //        }
     case GO:
-          desiredVelL += 0.0625;
-          desiredVelR += 0.087;
+          desiredVelL += 0.06; //0.0625;
+          desiredVelR += 0.062; //0.087;
           wheelSpeedFeedback();
 
-         if (pitch > 20.0) {
+         if (pitch > 10.0) {
             recover();
             return true;
          }
@@ -364,8 +374,8 @@ void recover()
 {
     motorDriver.setM1Speed(0);
     motorDriver.setM2Speed(0);
-    delay(500);
-    brake(300);
+    delay(200);
+    brake(500);
 }
 
 void brake(int ms)
