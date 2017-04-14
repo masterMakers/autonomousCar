@@ -12,16 +12,26 @@
 #include <NAxisMotion.h>
 #include <DualVNH5019MotorShield.h>
 
-bool forwards = false;
-float dir = (forwards) ? 1.0: -1.0;
+#define FORWARDS false
 
+#if FORWARDS
 DualVNH5019MotorShield motorDriver(11, 5, 13, A0, 7, 8, 12, A1);
 Encoder motorEncL(2, 3);
 Encoder motorEncR(18, 19);
+const int LEFT_SIDE = 0, RIGHT_SIDE = 1, FRONT = 2, BACK = 3, numDistSensors = 2;
+float dir = 1.0;
+#else // backwards
+DualVNH5019MotorShield motorDriver(8, 7, 12, A1, 5, 11, 13, A0);
+Encoder motorEncL(19, 18);
+Encoder motorEncR(3, 2);
+const int LEFT_SIDE = 1, RIGHT_SIDE = 0, FRONT = 3, BACK = 2, numDistSensors = 2;
+float dir = -1.0;
+#endif
+
+
 NAxisMotion IMU;
 
 //distance sensors
-const int LEFT_SIDE = 0, RIGHT_SIDE = 1, FRONT = 2, BACK = 3, numDistSensors = 2;
 const int trigPins[numDistSensors] = {24,26};  // {24,26,28,32}; 
 const int echoPins[numDistSensors] = {25,27}; // {25,27,29,33};
 float distances[numDistSensors];
@@ -30,9 +40,8 @@ const float M = 1 / 29.0 / 2.0; // distance calibration
 int currDistSensor = 0;
 
 //Hall Following
-float nominalForwardSpeed = dir * 0.5;
+float nominalForwardSpeed = 0.5;
 double yaw = 0.0;
-double pathHeading;
 double desiredY = 0.5; //center of hallway (m)
 double currentY, turnAmount, desiredYaw = 0.0;
 PID pidHall(&currentY, &turnAmount, &desiredY, 0.5, 0.0, 0.75, DIRECT); // 0.5, 0.0, 0.0
@@ -68,8 +77,7 @@ KalmanFilter ekf(pose, pose_cov, measure, control_input);
 double motorVelL = 0.0, motorCmdL = 0.0, motorVelR = 0.0, motorCmdR = 0.0;
 double desiredVelL = nominalForwardSpeed;
 double desiredVelR = nominalForwardSpeed;
-
-PID pidL(&motorVelL, &motorCmdL, &desiredVelL, 140.0, 80.0, 2.0, DIRECT); //150, 80, 2
+PID pidL(&motorVelL, &motorCmdL, &desiredVelL, 150.0, 80.0, 2.0, DIRECT);
 PID pidR(&motorVelR, &motorCmdR, &desiredVelR, 150.0, 80.0, 2.0, DIRECT); 
         // args: input, output, setpoint, Kp, Ki, Kd, mode
 
@@ -116,24 +124,19 @@ void setup()
       reflValues[i] = 0.0;
     }
     rampThreshold = analogRead(reflSensorPin) * 2.0;
+    Serial.println(rampThreshold);
     
     //initialize heading
     yaw = degToRad( IMU.readEulerHeading() );
-    pathHeading = yaw;
 
     float K = 1000.0 / (240 / (0.1524 * 3.14159));
                 // (ms/s) / (ticksPerMeter)
                 // ticksPerMeter = ticksPerRev / MetersPerRev
-    if(forwards) {
-        pidL.SetOutputLimits(0, 400);
-        pidR.SetOutputLimits(0, 400);
-    } else {
-        pidL.SetOutputLimits(-400, 0);
-        pidR.SetOutputLimits(-400, 0);
-    }
+    pidL.SetOutputLimits(0, 400);  // -400 for reverse motion
     pidL.SetSampleTime(25); // 40 hz
     pidL.SetWheelParam(K);
     pidL.SetMode(AUTOMATIC);
+    pidR.SetOutputLimits(0, 400);  // -400 for reverse motion
     pidR.SetSampleTime(25);
     pidR.SetWheelParam(K);
     pidR.SetMode(AUTOMATIC);
@@ -220,7 +223,7 @@ void updateSensorReadings()
     IMU.updateEuler();     
     IMU.updateCalibStatus(); // Update the Calibration Status
     yaw = degToRad( IMU.readEulerHeading() );
-    pitch = IMU.readEulerRoll(); // IMU is rotated 90deg on robot
+    pitch = dir * IMU.readEulerRoll(); // IMU is rotated 90deg on robot
     
     //update wheel positions
     float leftWheelRevs = motorEncL.read() / 240.0;
@@ -238,9 +241,9 @@ void hallFollowing()
     desiredVelL = nominalForwardSpeed;
     desiredVelR = nominalForwardSpeed;
     if (turnAmount > 0.0) {
-        desiredVelR = nominalForwardSpeed + (dir * abs(turnAmount));
+        desiredVelR = nominalForwardSpeed + abs(turnAmount);
     } else if (turnAmount < 0.0) {
-        desiredVelL = nominalForwardSpeed + (dir * abs(turnAmount));
+        desiredVelL = nominalForwardSpeed + abs(turnAmount);
     }
 }
 
@@ -275,25 +278,27 @@ void gaitControl()
             jumpState = GET_TO_JUMP;
             startX = pose[0];
         }
-        if((distances[RIGHT_SIDE] > 120.0) && (fabs(pose[0]) > 1.5)) {
-            currGait = TURN;
-            desiredYaw = yaw - (dir * M_PI / 2.0); // pose[2] - (M_PI / 2.0);
+        else if((distances[RIGHT_SIDE] > 120.0) && (pose[0] > 1.5)) {
+            desiredYaw = pose[2] - (M_PI / 2.0); // yaw - (M_PI / 2.0) // TODO yaw or pose[2] ??
             brake(150);
-            delay(1000);
-        } else if((distances[LEFT_SIDE] > 120.0) && (fabs(pose[0]) > 1.5)) { // TODO average with distancesLast
+            delay(500);
             currGait = TURN;
-            desiredYaw = yaw + (dir * M_PI / 2.0); // pose[2] + (M_PI / 2.0);
+        } 
+        else if((distances[LEFT_SIDE] > 120.0) && (pose[0] > 1.5)) { // TODO average with distancesLast
+            desiredYaw = pose[2] + (M_PI / 2.0); // yaw + (M_PI / 2.0)
             brake(150);
-            delay(1000);
+            delay(500);
+            currGait = TURN;
         }
         break;
     case TURN:
         if (turn()) {
-            reset(); 
+            reset();
+            currGait = STRAIGHT;
         }
         break;
     case JUMP:
-        if (doJump()) {
+        if (jump()) {
             desiredYaw = 0.0;
             currGait = TURN; 
         }
@@ -325,7 +330,7 @@ bool rampDetection()
     return false;
 }
 
-bool doJump()
+bool jump()
 {     
     switch(jumpState) {
     case GET_TO_JUMP:
@@ -342,11 +347,11 @@ bool doJump()
 //            jumpState = GO;
 //        }
     case GO:
-          desiredVelL += (0.0625 * dir);
-          desiredVelR += (0.087 * dir);
+          desiredVelL += 0.0625;
+          desiredVelR += 0.087;
           wheelSpeedFeedback();
 
-         if ((dir * pitch) > 20.0) {
+         if (pitch > 20.0) {
             recover();
             return true;
          }
@@ -365,8 +370,8 @@ void recover()
 
 void brake(int ms)
 {
-    motorDriver.setM1Speed(-100 * dir);
-    motorDriver.setM2Speed(-100 * dir);
+    motorDriver.setM1Speed(-100);
+    motorDriver.setM2Speed(-100);
     Serial.println(" Brake ");
     delay(ms);
     motorDriver.setM1Speed(0);
@@ -394,24 +399,19 @@ void reset()
     for(int i = 0; i < reflSize; i++) {
       reflValues[i] = 0.0;
     }
-    
+
     //reset motor commands    
     motorDriver.setM1Speed(0); //right
     motorDriver.setM2Speed(0); //left
-    
-    //reset gait
-    currGait = STRAIGHT;
 
     //reset IMU
     IMU.resetSensor(0x28); // default address
-    //IMU.resetInterrupt();
     IMU.initSensor(); // I2C Address can be changed here
     IMU.setOperationMode(OPERATION_MODE_NDOF);
     IMU.setUpdateMode(MANUAL);  //The default is AUTO. MANUAL requires calling
                                 //update functions prior to read
     delay(500);
     yaw = degToRad( IMU.readEulerHeading() );
-    pathHeading = yaw;
 }
 
 //make sure motors connected
