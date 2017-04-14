@@ -12,7 +12,7 @@
 #include <NAxisMotion.h>
 #include <DualVNH5019MotorShield.h>
 
-DualVNH5019MotorShield motorDriver(11, 5, 13, A0, 7, 8, 12, A1);
+DualVNH5019MotorShield motorDriver(11, 5, 13, A0, 9, 7, 8, 12, A1, 10);
 Encoder motorEncL(2, 3);
 Encoder motorEncR(18, 19);
 NAxisMotion IMU;

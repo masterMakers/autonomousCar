@@ -12,16 +12,16 @@
 #include <NAxisMotion.h>
 #include <DualVNH5019MotorShield.h>
 
-#define FORWARDS false
+#define FORWARDS true
 
 #if FORWARDS
-DualVNH5019MotorShield motorDriver(11, 5, 13, A0, 7, 8, 12, A1);
+DualVNH5019MotorShield motorDriver(11, 5, 13, A0, 9, 7, 8, 12, A1, 10);
 Encoder motorEncL(2, 3);
 Encoder motorEncR(18, 19);
 const int LEFT_SIDE = 0, RIGHT_SIDE = 1, FRONT = 2, BACK = 3, numDistSensors = 2;
 float dir = 1.0;
 #else // backwards
-DualVNH5019MotorShield motorDriver(8, 7, 12, A1, 5, 11, 13, A0);
+DualVNH5019MotorShield motorDriver(8, 7, 12, A1, 10, 5, 11, 13, A0, 9);
 Encoder motorEncL(19, 18);
 Encoder motorEncR(3, 2);
 const int LEFT_SIDE = 1, RIGHT_SIDE = 0, FRONT = 3, BACK = 2, numDistSensors = 2;
@@ -89,12 +89,12 @@ enum gait {
 };
 gait currGait = STRAIGHT;
 
-enum jump {
+enum jstate {
   GET_TO_JUMP,
   PREPARE,
   GO
 };
-jump jumpState = GET_TO_JUMP;
+jstate jumpState = GET_TO_JUMP;
 
 bool debug = true;
 
@@ -181,8 +181,8 @@ void loop()
       ekf.printPose();
       Serial.print(" IMU Yaw: ");
       Serial.print(yaw); //Heading, deg
-      Serial.print(" Desired Yaw: ");
-      Serial.print(desiredYaw);
+//      Serial.print(" Desired Yaw: ");
+//      Serial.print(desiredYaw);
       Serial.print(" Gait: ");
       Serial.print(currGait);
 //      Serial.print(" Jump: ");
