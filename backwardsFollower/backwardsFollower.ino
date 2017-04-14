@@ -44,7 +44,7 @@ float nominalForwardSpeed = 0.5;
 double yaw = 0.0;
 double desiredY = 0.5; //center of hallway (m)
 double currentY, turnAmount, desiredYaw = 0.0;
-PID pidHall(&currentY, &turnAmount, &desiredY, 0.5, 0.0, 0.75, DIRECT); // 0.5, 0.0, 0.0
+PID pidHall(&currentY, &turnAmount, &desiredY, 0.525, 0.0, 0.875, DIRECT); // 0.5, 0.0, 0.75
         // args: input, output, setpoint, Kp, Ki, Kd, mode
 
 //Yaw Correction
@@ -78,7 +78,7 @@ KalmanFilter ekf(pose, pose_cov, measure, control_input);
 double motorVelL = 0.0, motorCmdL = 0.0, motorVelR = 0.0, motorCmdR = 0.0;
 double desiredVelL = nominalForwardSpeed;
 double desiredVelR = nominalForwardSpeed;
-PID pidL(&motorVelL, &motorCmdL, &desiredVelL, 150.0, 80.0, 2.0, DIRECT);
+PID pidL(&motorVelL, &motorCmdL, &desiredVelL, 145.0, 80.0, 2.0, DIRECT);
 PID pidR(&motorVelR, &motorCmdR, &desiredVelR, 150.0, 80.0, 2.0, DIRECT); 
         // args: input, output, setpoint, Kp, Ki, Kd, mode
 
@@ -301,8 +301,8 @@ void gaitControl()
         if (turn()) {
             reset();
             currGait = STRAIGHT;
-            desiredVelR = nominalForwardSpeed;
-            desiredVelL = nominalForwardSpeed;
+            desiredVelR = 0;
+            desiredVelL = 0;
             turnAmount = 0;
         }
         break;
@@ -361,7 +361,7 @@ bool jump()
           desiredVelR += 0.062; //0.087;
           wheelSpeedFeedback();
 
-         if (pitch > 10.0) {
+         if (pitch > 7.5) {
             recover();
             return true;
          }
@@ -421,7 +421,10 @@ void reset()
     IMU.setUpdateMode(MANUAL);  //The default is AUTO. MANUAL requires calling
                                 //update functions prior to read
     delay(500);
+    IMU.updateEuler();     
+    IMU.updateCalibStatus();
     yaw = degToRad( IMU.readEulerHeading() );
+    pitch = dir * IMU.readEulerRoll();
 }
 
 //make sure motors connected
